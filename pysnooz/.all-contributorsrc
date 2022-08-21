@@ -1,0 +1,27 @@
+{
+  "projectName": "pysnooz",
+  "projectOwner": "AustinBrunkhorst",
+  "repoType": "github",
+  "repoHost": "https://github.com",
+  "files": [
+    "README.md"
+  ],
+  "imageSize": 80,
+  "commit": true,
+  "commitConvention": "angular",
+  "contributors": [
+    {
+      "login": "AustinBrunkhorst",
+      "name": "Austin Brunkhorst",
+      "avatar_url": "https://avatars.githubusercontent.com/u/499591?v=4",
+      "profile": "https://austinbrunkhorst.com/",
+      "contributions": [
+        "code",
+        "ideas",
+        "doc"
+      ]
+    }
+  ],
+  "contributorsPerLine": 7,
+  "skipCi": true
+}
