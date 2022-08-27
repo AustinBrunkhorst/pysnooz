@@ -7,9 +7,14 @@ TOKEN_SEQUENCE = bytes(range(1, ADVERTISEMENT_TOKEN_LENGTH + 1))
 
 
 class SnoozAdvertisementData(BluetoothData):
-    """string of hex digits stored in the device advertisement only in pairing mode"""
+    """Represents data from a SNOOZ advertisement."""
 
+    # string of hex digits stored in the device advertisement only in pairing mode
     pairing_token: str
+
+    # formatted name like "Snooz AABB"
+    # where AABB is the last 4 digits of the MAC address
+    display_name: str
 
     @property
     def is_pairing(self) -> bool:
@@ -36,9 +41,20 @@ class SnoozAdvertisementData(BluetoothData):
         if raw_token not in (TOKEN_EMPTY, TOKEN_SEQUENCE):
             self.pairing_token = raw_token.hex()
 
-        name = data.name.replace("-", " ")
+        name = get_snooz_display_name(data.name, data.address)
+        self.display_name = name
+
         self.set_title(name)
         self.set_device_name(name)
         self.set_device_manufacturer("SNOOZ, LLC")
         self.set_device_type("SNOOZ White Noise Machine")
         self.set_device_hw_version(advertisement[0])
+
+
+def get_snooz_display_name(local_name: str, address: str) -> str:
+    # if the advertised name doesn't have any digits, then use
+    # the last 4 from the mac address
+    if local_name.lower() == "snooz":
+        return f"Snooz {address.replace(':', '')[-4:]}"
+
+    return local_name.replace("-", " ")

@@ -6,7 +6,13 @@ from datetime import datetime
 from enum import Enum
 
 from bleak.backends.device import BLEDevice
-from bleak_retry_connector import BleakClient, establish_connection
+from bleak_retry_connector import (
+    BleakAbortedError,
+    BleakClient,
+    BleakConnectionError,
+    BleakNotFoundError,
+    establish_connection,
+)
 from events import Events
 from transitions import Machine, State
 
@@ -182,11 +188,16 @@ class SnoozDevice:
     async def _async_connect(self) -> None:
         self._machine.connection_start()
 
-        client = await establish_connection(
-            BleakClient,
-            self._device,
-            self._device.name,
-        )
+        try:
+            client = await establish_connection(
+                BleakClient,
+                self._device,
+                self._device.name,
+            )
+        except (BleakConnectionError, BleakNotFoundError, BleakAbortedError):
+            _LOGGER.exception("Device unavailable")
+            raise SnoozDeviceUnavailableError()
+
         api = SnoozDeviceApi(client)
         api.events.on_disconnect += lambda: self._machine.device_disconnected()
         api.events.on_state_change += lambda state: self._on_receive_device_state(state)

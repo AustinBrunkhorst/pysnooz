@@ -179,6 +179,10 @@ class SnoozCommandProcessor(ABC):
         pass
 
     def cancel(self) -> None:
+        # nothing to do if the command is already complete
+        if self.state == CommandProcessorState.COMPLETE:
+            return
+
         self._machine.cancelled()
 
     def on_disconnected(self) -> None:
