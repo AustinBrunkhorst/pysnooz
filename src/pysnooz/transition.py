@@ -31,7 +31,6 @@ class Transition:
         self._cancelled = False
         self._update_task = loop.create_task(
             self._async_run(
-                loop,
                 start_value,
                 end_value,
                 duration,
@@ -45,7 +44,6 @@ class Transition:
 
     async def _async_run(
         self,
-        loop: AbstractEventLoop,
         start_value: float,
         end_value: float,
         duration: timedelta,
@@ -64,9 +62,7 @@ class Transition:
             await async_on_update(value)
             elapsed = current_time - self.last_update
             self.last_update = current_time
-            await asyncio.sleep(
-                max(0, (1 / UPDATES_PER_SECOND) - elapsed.seconds), loop=loop
-            )
+            await asyncio.sleep(max(0, (1 / UPDATES_PER_SECOND) - elapsed.seconds))
 
         if not self._cancelled:
             await async_on_update(end_value)
