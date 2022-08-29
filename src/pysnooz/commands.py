@@ -5,10 +5,12 @@ from abc import ABC, abstractmethod
 from asyncio import AbstractEventLoop, CancelledError, Future, Lock, Task
 from datetime import datetime, timedelta
 from enum import Enum
+from typing import Callable
 
 from transitions import Machine, State
 
 from pysnooz.api import MIN_DEVICE_VOLUME, SnoozDeviceApi, SnoozDeviceState
+from pysnooz.const import UNEXPECTED_ERROR_LOG_MESSAGE
 from pysnooz.transition import Transition
 
 _LOGGER = logging.getLogger(__name__)
@@ -77,11 +79,13 @@ class SnoozCommandProcessor(ABC):
     def __init__(
         self,
         loop: AbstractEventLoop,
+        _: Callable[[str], str],
         command: SnoozCommandData,
         start_time: datetime,
         result: Future[SnoozCommandResult],
     ) -> None:
         self.loop = loop
+        self._ = _
         self.command = command
         self.start_time = start_time
         self.last_disconnect_time: datetime | None = None
@@ -171,7 +175,12 @@ class SnoozCommandProcessor(ABC):
 
             self._machine.execution_complete()
         except Exception:
-            _LOGGER.exception(f"Exception while processing command {self.command}")
+            _LOGGER.exception(
+                self._(
+                    f"Unexpected error while executing {self.command}\n"
+                    + UNEXPECTED_ERROR_LOG_MESSAGE
+                )
+            )
             self.on_unhandled_exception()
 
     @abstractmethod
@@ -212,21 +221,32 @@ class SnoozCommandProcessor(ABC):
 
     def _on_complete(self) -> None:
         duration = datetime.now() - self.start_time
-        _LOGGER.debug(
-            f"Completed {self.command} ({self._result_status}) in {duration}"
-            f" with {self._total_disconnects} disconnects"
-        )
+
+        message = f"Completed {self.command} ({self._result_status.name}) in {duration}"
+        if self._total_disconnects > 0:
+            message += f" with {self._total_disconnects} disconnects"
+
+        _LOGGER.debug(self._(message))
         self.result.set_result(SnoozCommandResult(self._result_status, duration))
 
 
+def default_log_formatter(message: str) -> str:
+    return message
+
+
 def create_command_processor(
-    loop: AbstractEventLoop, start_time: datetime, data: SnoozCommandData
+    loop: AbstractEventLoop,
+    start_time: datetime,
+    data: SnoozCommandData,
+    format_log_message: Callable[[str], str] | None = None,
 ) -> SnoozCommandProcessor:
     cls = TransitionedCommand if data.duration else ImmediatelyInvokedCommand
 
     result = loop.create_future()
 
-    return cls(loop, data, start_time, result)
+    return cls(
+        loop, format_log_message or default_log_formatter, data, start_time, result
+    )
 
 
 class ImmediatelyInvokedCommand(SnoozCommandProcessor):
@@ -241,6 +261,7 @@ class TransitionedCommand(SnoozCommandProcessor):
     def __init__(
         self,
         loop: AbstractEventLoop,
+        _: Callable[[str], str],
         data: SnoozCommandData,
         start_time: datetime,
         result: Future[SnoozCommandResult],
@@ -248,7 +269,7 @@ class TransitionedCommand(SnoozCommandProcessor):
         if data.duration is None:
             raise ValueError("Duration must be set for transitioned commands")
 
-        super().__init__(loop, data, start_time, result)
+        super().__init__(loop, _, data, start_time, result)
         self._transition = Transition()
         self._starting_state: SnoozDeviceState | None = None
         self._remaining_duration = data.duration
@@ -269,8 +290,10 @@ class TransitionedCommand(SnoozCommandProcessor):
             self._starting_state = current_state
 
         _LOGGER.debug(
-            f"[transition] initial state: {current_state}, "
-            f"remaining duration: {self._remaining_duration}"
+            self._(
+                f"Starting {self.command} from {current_state} "
+                f"with {self._remaining_duration} remaining"
+            )
         )
 
         # when there's no remaining duration, it means the transition

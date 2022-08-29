@@ -1,0 +1,34 @@
+name: Uncaught exception
+description: Submit an uncaught exception from the logs so we can prevent it in the future.
+title: "Uncaught exception"
+labels: [bug]
+body:
+  - type: checkboxes
+    attributes:
+      label: Is there an existing issue for this?
+      description: Please search to see if an issue already exists for the log message.
+      options:
+        - label: I have searched the existing issues
+          required: true
+  - type: textarea
+    attributes:
+      label: Stack trace
+      description: Copy the stack trace from the log message.
+      placeholder: "Traceback (most recent call last):\n  File \"...\", line .., in ...\n    <expression>"
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: Environment
+      description: What environment did this occur in?
+      options:
+        - Home Assistant Component
+        - pysnooz CLI
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Additional details
+      description: "Tip: You can attach screenshots or log files by dropping it in this textbox."
+    validations:
+      required: false

@@ -16,6 +16,7 @@ class Transition:
     end_time: datetime | None = None
     last_update: datetime | None = None
 
+    _run_id: int = 0
     _cancelled: bool = False
     _update_task: Task[None] | None = None
 
@@ -40,7 +41,10 @@ class Transition:
             name=f"Transition from {start_value} to {end_value} over {duration}",
         )
 
-        await self._update_task
+        try:
+            await self._update_task
+        finally:
+            self._run_id += 1
 
     async def _async_run(
         self,
@@ -50,28 +54,46 @@ class Transition:
         async_on_update: Callable[[float], Awaitable[None]],
         async_on_complete: Callable[[], Awaitable[None]],
     ) -> None:
-        self.start_time = datetime.now()
-        self.end_time = self.start_time + duration
+        start_time = datetime.now()
+        self.start_time = start_time
+        end_time = start_time + duration
+        self.end_time = end_time
 
-        self.last_update = self.start_time
+        self.last_update = start_time
 
-        while not self._cancelled and (current_time := datetime.now()) <= self.end_time:
-            progress = (current_time - self.start_time) / duration
-            value = start_value + (end_value - start_value) * progress
-            _LOGGER.debug(f"{progress * 100:.2f}%: {value:.2f}")
+        async def dispatch_update(value: float) -> None:
+            _LOGGER.debug(f"[{self._run_id}] {progress * 100:.1f}%: {value:.2f}")
             await async_on_update(value)
+
+        async def dispatch_complete() -> None:
+            _LOGGER.debug(f"[{self._run_id}] complete in {datetime.now() - start_time}")
+            await async_on_complete()
+
+        _LOGGER.debug(
+            f"[{self._run_id}] starting {start_value} -> {end_value} over {duration}"
+        )
+
+        while not self._cancelled and (current_time := datetime.now()) <= end_time:
+            progress = (current_time - start_time) / duration
+            value = start_value + (end_value - start_value) * progress
+            await dispatch_update(value)
             elapsed = current_time - self.last_update
             self.last_update = current_time
             await asyncio.sleep(max(0, (1 / UPDATES_PER_SECOND) - elapsed.seconds))
 
         if not self._cancelled:
-            await async_on_update(end_value)
-            await async_on_complete()
+            await dispatch_update(end_value)
+            await dispatch_complete()
 
     def cancel(self) -> None:
-        if self._update_task is None:
+        if self._update_task is None or self._update_task.done():
             return
 
         self._cancelled = True
         self._update_task.cancel()
         self._update_task = None
+
+        duration = (
+            "" if not self.start_time else f" after {datetime.now() - self.start_time}"
+        )
+        _LOGGER.debug(f"[{self._run_id}] cancelled{duration}")

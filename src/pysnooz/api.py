@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import IntEnum
 from typing import Any
 
-from bleak import BleakClient
+from bleak import BleakClient, BleakError
 from events import Events
 
 # uuid of the characteristic that reads snooz state
@@ -14,6 +14,9 @@ WRITE_STATE_UUID = "90759319-1668-44da-9ef3-492d593bd1e5"
 
 # values less than this have no effect
 MIN_DEVICE_VOLUME = 10
+
+# number of times to retry a transient command failure before giving up
+RETRY_TRANSIENT_FAILURE_COUNT = 3
 
 
 class SnoozDeviceState:
@@ -71,18 +74,27 @@ class SnoozDeviceApi:
         return state_from_char_data(data)
 
     async def async_listen_for_state_changes(self) -> None:
+        if not self._client.is_connected:
+            return
+
         await self._client.start_notify(
             READ_STATE_UUID,
             lambda _, data: self.events.on_state_change(state_from_char_data(data)),
         )
 
     async def _async_write_command(self, command: CommandId, data: bytes) -> None:
-        if not self._client.is_connected:
-            return
-
+        attempts = 0
         payload = bytes([command]) + data
 
-        await self._client.write_gatt_char(WRITE_STATE_UUID, payload, False)
+        while self._client.is_connected and attempts < RETRY_TRANSIENT_FAILURE_COUNT:
+            try:
+                await self._client.write_gatt_char(WRITE_STATE_UUID, payload)
+                return
+            except BleakError:
+                attempts += 1
+
+                if attempts >= RETRY_TRANSIENT_FAILURE_COUNT:
+                    raise
 
 
 def state_from_char_data(data: bytes) -> SnoozDeviceState:

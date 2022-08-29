@@ -431,3 +431,18 @@ async def test_unhandled_exception(event_loop: AbstractEventLoop) -> None:
     result = await command.result
     assert command.state == CommandProcessorState.COMPLETE
     assert result.status == SnoozCommandResultStatus.UNEXPECTED_ERROR
+
+
+@pytest.mark.asyncio
+async def test_unhandled_exception_during_execution(
+    mocker: MockerFixture,
+    event_loop: AbstractEventLoop,
+) -> None:
+    mock_api = mocker.MagicMock(spec=SnoozDeviceApi)
+    mock_api.async_set_power.side_effect = Exception("Testing unhandled exception")
+
+    command = create_command_processor(event_loop, datetime.now(), turn_on())
+    await command.async_execute(mock_api)
+    result = await command.result
+    assert command.state == CommandProcessorState.COMPLETE
+    assert result.status == SnoozCommandResultStatus.UNEXPECTED_ERROR
