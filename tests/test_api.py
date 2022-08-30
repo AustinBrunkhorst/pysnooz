@@ -62,7 +62,7 @@ async def test_retries_write_errors(mocker: MockerFixture) -> None:
 
 @pytest.mark.asyncio
 async def test_raises_write_errors(mocker: MockerFixture) -> None:
-    mock_client = mocker.AsyncMock(autospec=MockSnoozClient)
+    mock_client = mocker.MagicMock(autospec=MockSnoozClient)
     mock_client.write_gatt_char.side_effect = Exception("Test error")
     api = SnoozDeviceApi(mock_client)
     with pytest.raises(Exception):
@@ -72,7 +72,7 @@ async def test_raises_write_errors(mocker: MockerFixture) -> None:
 
 @pytest.mark.asyncio
 async def test_volume_validation(mocker: MockerFixture) -> None:
-    mock_client = mocker.AsyncMock(autospec=MockSnoozClient)
+    mock_client = mocker.MagicMock(autospec=MockSnoozClient)
     mock_client.write_gatt_char.side_effect = Exception("Test error")
     api = SnoozDeviceApi(mock_client)
     with pytest.raises(ValueError):
