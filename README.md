@@ -35,6 +35,36 @@ Install this via pip (or your favourite package manager):
 
 `pip install pysnooz`
 
+## Usage
+
+```python
+import asyncio
+from datetime import timedelta
+from bleak.backends.client import BLEDevice
+from pysnooz.device import SnoozDevice
+from pysnooz.commands import SnoozCommandResultStatus, turn_on, turn_off, set_volume
+
+# found with discovery
+ble_device = BLEDevice(...)
+token = "deadbeef"
+
+device = SnoozDevice(ble_device, token, asyncio.get_event_loop())
+
+# optionally specify a volume to set before turning on
+await device.async_execute_command(turn_on(volume=100))
+
+# you can transition volume by specifying a duration
+await device.async_execute_command(turn_off(duration=timedelta(seconds=10)))
+
+# you can also set the volume directly
+await device.async_execute_command(set_volume(50))
+
+# view the result of a command execution
+result = await device.async_execute_command(turn_on())
+assert result.status == SnoozCommandResultStatus.SUCCESS
+result.duration # how long the command took to complete
+```
+
 ## Contributors ✨
 
 Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/docs/en/emoji-key)):
