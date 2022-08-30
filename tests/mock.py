@@ -7,13 +7,7 @@ from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.client import BaseBleakClient
 from bleak.backends.service import BleakGATTServiceCollection
 
-from pysnooz.api import (
-    READ_STATE_UUID,
-    WRITE_STATE_UUID,
-    CommandId,
-    SnoozDeviceState,
-    char_data_from_state,
-)
+from pysnooz.api import READ_STATE_UUID, WRITE_STATE_UUID, CommandId, SnoozDeviceState
 
 
 class MockSnoozClient(BaseBleakClient):
@@ -129,3 +123,10 @@ class MockSnoozClient(BaseBleakClient):
 
     def _get_state_char_data(self) -> bytearray:
         return char_data_from_state(self._state)
+
+
+def char_data_from_state(state: SnoozDeviceState) -> bytearray:
+    if state.volume is None:
+        raise ValueError("Volume must be specified")
+
+    return bytearray([state.volume, 0x01 if state.on else 0x00, *([0] * 18)])

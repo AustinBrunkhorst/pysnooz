@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import logging
 from asyncio import Lock
 from enum import IntEnum
-from typing import Any
+from typing import Any, Callable
 
 from bleak import BleakClient
 from bleak.exc import BleakDBusError
@@ -18,7 +19,13 @@ WRITE_STATE_UUID = "90759319-1668-44da-9ef3-492d593bd1e5"
 MIN_DEVICE_VOLUME = 10
 
 # number of times to retry a transient command failure before giving up
-RETRY_TRANSIENT_FAILURE_COUNT = 5
+RETRY_WRITE_FAILURE_COUNT = 5
+DBUS_ERRORS_TO_RETRY = (
+    "org.bluez.Error",
+    "org.bluez.Error.InProgress",
+)
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class SnoozDeviceState:
@@ -46,11 +53,16 @@ class CommandId(IntEnum):
 
 
 class SnoozDeviceApi:
-    def __init__(self, client: BleakClient) -> None:
+    def __init__(
+        self,
+        client: BleakClient,
+        format_log_message: Callable[[str], str] | None = None,
+    ) -> None:
         self.events = Events(("on_disconnect", "on_state_change"))
         self._client = client
         self._client.set_disconnected_callback(lambda _: self.events.on_disconnect())
         self._write_lock = Lock()
+        self._ = format_log_message or (lambda msg: msg)
 
     @property
     def is_connected(self) -> bool:
@@ -90,19 +102,21 @@ class SnoozDeviceApi:
         payload = bytes([command]) + data
 
         async with self._write_lock:
-            while (
-                self._client.is_connected and attempts < RETRY_TRANSIENT_FAILURE_COUNT
-            ):
+            while self._client.is_connected and attempts < RETRY_WRITE_FAILURE_COUNT:
                 try:
+                    message = f"write {payload.hex()}"
+                    if attempts > 0:
+                        message += f" (attempt {attempts+1})"
+                    _LOGGER.debug(self._(message))
                     await self._client.write_gatt_char(WRITE_STATE_UUID, payload)
                     return
                 except BleakDBusError as ex:
-                    if ex.dbus_error == "org.bluez.Error.InProgress":
+                    if ex.dbus_error in DBUS_ERRORS_TO_RETRY:
                         attempts += 1
 
-                        if attempts >= RETRY_TRANSIENT_FAILURE_COUNT:
+                        if attempts >= RETRY_WRITE_FAILURE_COUNT:
                             raise Exception(
-                                f'Got "in progress" error {attempts} times'
+                                f"Got transient error {attempts} times"
                             ) from ex
                     else:
                         raise
@@ -112,10 +126,3 @@ def state_from_char_data(data: bytes) -> SnoozDeviceState:
     volume = data[0]
     on = data[1] == 0x01
     return SnoozDeviceState(on, volume)
-
-
-def char_data_from_state(state: SnoozDeviceState) -> bytearray:
-    if state.volume is None:
-        raise ValueError("Volume must be specified")
-
-    return bytearray([state.volume, 0x01 if state.on else 0x00, *([0] * 18)])

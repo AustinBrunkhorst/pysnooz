@@ -140,6 +140,13 @@ class SnoozDevice:
             after=self._after_device_disconnected,
         )
 
+        self.events.on_connection_load_time += lambda t: _LOGGER.debug(
+            self._(f"Connection load time: {t}")
+        )
+        self.events.on_connection_duration += lambda t: _LOGGER.debug(
+            self._(f"Connection duration: {t}")
+        )
+
     @property
     def name(self) -> str:
         return self._device.name
@@ -287,7 +294,7 @@ class SnoozDevice:
         if new_status == self._last_dispatched_connection_status:
             return
 
-        _LOGGER.debug(self._(self._status(new_status)))
+        _LOGGER.debug(self._(describe_connection_status(new_status)))
 
         self._last_dispatched_connection_status = new_status
         self.events.on_connection_status_change(new_status)
@@ -302,8 +309,14 @@ class SnoozDevice:
 
     def _after_device_disconnected(self, e: EventData) -> None:
         reason: DisconnectionReason = e.kwargs.get("reason")
-        _LOGGER.debug(
-            self._(f"disconnected because {self._reason(reason)}"),
+        level = (
+            logging.ERROR
+            if reason == DisconnectionReason.DEVICE_UNAVAILABLE
+            else logging.INFO
+        )
+        _LOGGER.log(
+            level,
+            self._(f"disconnected because {describe_disconnection_reason(reason)}"),
             exc_info=reason
             not in (DisconnectionReason.USER, DisconnectionReason.DEVICE),
         )
@@ -328,7 +341,8 @@ class SnoozDevice:
         if self._connection_attempts >= MAX_RECONNECTION_ATTEMPTS:
             _LOGGER.error(
                 self._(
-                    f"Unavailable after {self._connection_attempts} connection attempts"
+                    f"Unavailable after {self._connection_attempts}"
+                    "connection attempts"
                 )
             )
 
@@ -359,29 +373,6 @@ class SnoozDevice:
             name=f"[Reconnect] {self.display_name}",
         )
 
-    def _reason(self, reason: DisconnectionReason) -> str:
-        descriptions = {
-            DisconnectionReason.USER: (
-                f"{SnoozDevice.async_disconnect.__qualname__}() was called"
-            ),
-            DisconnectionReason.DEVICE: "the bluetooth connection was lost",
-            DisconnectionReason.UNEXPECTED_ERROR: (
-                f"an uncaught exception occurred.\n{UNEXPECTED_ERROR_LOG_MESSAGE}"
-            ),
-            DisconnectionReason.DEVICE_UNAVAILABLE: (
-                "the device couldn't establish a connection"
-            ),
-        }
-        return descriptions[reason] or reason.name
-
-    def _status(self, status: SnoozConnectionStatus) -> str:
-        descriptions = {
-            SnoozConnectionStatus.DISCONNECTED: "🔴 Disconnected",
-            SnoozConnectionStatus.CONNECTING: "🟡 Connecting",
-            SnoozConnectionStatus.CONNECTED: "🟢 Connected",
-        }
-        return descriptions[status] or status.name
-
     def _(self, message: str) -> str:
         """Format a message for logging."""
         return f"[{self.display_name}] {message}"
@@ -405,3 +396,28 @@ class SnoozDevice:
             description += ["Disconnected"]
 
         return f"SnoozDevice({self.address} {' '.join(description)})"
+
+
+def describe_connection_status(status: SnoozConnectionStatus) -> str:
+    descriptions = {
+        SnoozConnectionStatus.DISCONNECTED: "🔴 Disconnected",
+        SnoozConnectionStatus.CONNECTING: "🟡 Connecting",
+        SnoozConnectionStatus.CONNECTED: "🟢 Connected",
+    }
+    return descriptions[status] or status.name
+
+
+def describe_disconnection_reason(reason: DisconnectionReason) -> str:
+    descriptions = {
+        DisconnectionReason.USER: (
+            f"{SnoozDevice.async_disconnect.__qualname__}() was called"
+        ),
+        DisconnectionReason.DEVICE: "the bluetooth connection was lost",
+        DisconnectionReason.UNEXPECTED_ERROR: (
+            f"an uncaught exception occurred.\n{UNEXPECTED_ERROR_LOG_MESSAGE}"
+        ),
+        DisconnectionReason.DEVICE_UNAVAILABLE: (
+            "the device couldn't establish a connection"
+        ),
+    }
+    return descriptions[reason] or reason.name

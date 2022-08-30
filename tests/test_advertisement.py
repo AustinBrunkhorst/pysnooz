@@ -39,6 +39,16 @@ DEVICE_TOKEN_DEADBEEF = BluetoothServiceInfo(
     source="local",
 )
 
+DEVICE_NO_MANUFACTURER_DATA = BluetoothServiceInfo(
+    name="Snooz-ABCD",
+    address="00:00:00:00:AB:CD",
+    rssi=-63,
+    manufacturer_data={},
+    service_uuids=[READ_STATE_UUID, WRITE_STATE_UUID],
+    service_data={},
+    source="local",
+)
+
 
 def test_display_name():
     assert get_snooz_display_name("Snooz", "00:00:00:00:00:00") == "Snooz 0000"
@@ -51,6 +61,11 @@ def test_display_name():
     parser = SnoozAdvertisementData()
     assert parser.supported(DEVICE_TOKEN_EMPTY) is True
     assert parser.display_name == "Snooz ABCD"
+
+
+def test_no_manufacturer_data():
+    parser = SnoozAdvertisementData()
+    assert parser.supported(DEVICE_NO_MANUFACTURER_DATA) is False
 
 
 def test_pairing_mode():
