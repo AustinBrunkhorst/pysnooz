@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.6.2 (2022-08-30)
+### Fix
+* **logs:** Add logs + api tests ([`c587f81`](https://github.com/AustinBrunkhorst/pysnooz/commit/c587f81357f1a70ce46af118c77b65cb1b9ab568))
+
 ## v0.6.1 (2022-08-30)
 ### Fix
 * **log:** Use formatted message for status change ([`4dc4a20`](https://github.com/AustinBrunkhorst/pysnooz/commit/4dc4a207918de78c2c5c778388f4e5de18fb75b5))
