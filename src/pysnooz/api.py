@@ -18,7 +18,7 @@ WRITE_STATE_UUID = "90759319-1668-44da-9ef3-492d593bd1e5"
 MIN_DEVICE_VOLUME = 10
 
 # number of times to retry a transient command failure before giving up
-RETRY_TRANSIENT_FAILURE_COUNT = 3
+RETRY_TRANSIENT_FAILURE_COUNT = 5
 
 
 class SnoozDeviceState:
@@ -102,7 +102,7 @@ class SnoozDeviceApi:
 
                         if attempts >= RETRY_TRANSIENT_FAILURE_COUNT:
                             raise Exception(
-                                'Got "in progress" error {attempts} times'
+                                f'Got "in progress" error {attempts} times'
                             ) from ex
                     else:
                         raise

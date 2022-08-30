@@ -287,7 +287,7 @@ class SnoozDevice:
         if new_status == self._last_dispatched_connection_status:
             return
 
-        _LOGGER.debug(self._status(new_status))
+        _LOGGER.debug(self._(self._status(new_status)))
 
         self._last_dispatched_connection_status = new_status
         self.events.on_connection_status_change(new_status)
