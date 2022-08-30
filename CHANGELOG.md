@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.7.0 (2022-08-30)
+### Feature
+* **docs:** Add initial usage ([`1d3f439`](https://github.com/AustinBrunkhorst/pysnooz/commit/1d3f43937493573c6979d01f91b01f7998d55edd))
+
 ## v0.6.2 (2022-08-30)
 ### Fix
 * **logs:** Add logs + api tests ([`c587f81`](https://github.com/AustinBrunkhorst/pysnooz/commit/c587f81357f1a70ce46af118c77b65cb1b9ab568))
