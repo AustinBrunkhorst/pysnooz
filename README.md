@@ -27,7 +27,7 @@
   <img src="https://img.shields.io/pypi/l/pysnooz.svg?style=flat-square" alt="License">
 </p>
 
-Control SNOOZ white noise machines.
+Control SNOOZ white noise machines with Bluetooth.
 
 ## Installation
 
