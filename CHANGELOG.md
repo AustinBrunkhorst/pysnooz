@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.6.0 (2022-08-30)
+### Feature
+* **test:** Better logging ([`22667f7`](https://github.com/AustinBrunkhorst/pysnooz/commit/22667f72a7f2331dd38d7978d4e2538fe1e88cf3))
+
 ## v0.5.0 (2022-08-30)
 ### Feature
 * **ci:** Test ci release ([`d281979`](https://github.com/AustinBrunkhorst/pysnooz/commit/d281979b0ed7c6ef09b29614ce2ef1263a3c5117))
