@@ -394,7 +394,7 @@ class TransitionedCommand(SnoozCommandProcessor):
                     _LOGGER.debug(
                         self._(
                             f"[{action}] power off and reset to "
-                            "{self._starting_state.volume}% volume"
+                            f"{self._starting_state.volume}% volume"
                         )
                     )
                 else:
