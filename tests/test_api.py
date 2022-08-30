@@ -47,8 +47,9 @@ def test_properties() -> None:
 
 @pytest.mark.asyncio
 async def test_retries_write_errors(mocker: MockerFixture) -> None:
-    mock_client = mocker.AsyncMock(autospec=MockSnoozClient)
-    mock_client.write_gatt_char.side_effect = [
+    mock_client = MockSnoozClient(BLEDevice("Snooz-ABCD", "00:00:00:00:12:34"))
+    mock_write_gatt_char = mocker.patch.object(mock_client, "write_gatt_char")
+    mock_write_gatt_char.side_effect = [
         DBUS_ERROR,
         DBUS_ERROR_IN_PROGRESS,
         DBUS_ERROR,
@@ -57,23 +58,23 @@ async def test_retries_write_errors(mocker: MockerFixture) -> None:
     ]
     api = SnoozDeviceApi(mock_client)
     await api.async_set_volume(30)
-    assert mock_client.write_gatt_char.call_count == 5
+    assert mock_write_gatt_char.call_count == 5
 
 
 @pytest.mark.asyncio
 async def test_raises_write_errors(mocker: MockerFixture) -> None:
-    mock_client = mocker.MagicMock(autospec=MockSnoozClient)
-    mock_client.write_gatt_char.side_effect = Exception("Test error")
+    mock_client = MockSnoozClient(BLEDevice("Snooz-ABCD", "00:00:00:00:12:34"))
+    mock_write_gatt_char = mocker.patch.object(mock_client, "write_gatt_char")
+    mock_write_gatt_char.side_effect = Exception("Test error")
     api = SnoozDeviceApi(mock_client)
     with pytest.raises(Exception):
         await api.async_set_volume(30)
-    assert mock_client.write_gatt_char.call_count == 1
+    assert mock_write_gatt_char.call_count == 1
 
 
 @pytest.mark.asyncio
 async def test_volume_validation(mocker: MockerFixture) -> None:
     mock_client = mocker.MagicMock(autospec=MockSnoozClient)
-    mock_client.write_gatt_char.side_effect = Exception("Test error")
     api = SnoozDeviceApi(mock_client)
     with pytest.raises(ValueError):
         await api.async_set_volume(-10)
