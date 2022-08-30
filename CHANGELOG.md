@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.6.1 (2022-08-30)
+### Fix
+* **log:** Use formatted message for status change ([`4dc4a20`](https://github.com/AustinBrunkhorst/pysnooz/commit/4dc4a207918de78c2c5c778388f4e5de18fb75b5))
+
 ## v0.6.0 (2022-08-30)
 ### Feature
 * **test:** Better logging ([`22667f7`](https://github.com/AustinBrunkhorst/pysnooz/commit/22667f72a7f2331dd38d7978d4e2538fe1e88cf3))
