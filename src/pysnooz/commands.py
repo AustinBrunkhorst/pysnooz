@@ -39,7 +39,7 @@ class SnoozCommandData:
         if self.duration is not None:
             operations += [f"transition {self.duration}"]
 
-        return f"SnoozCommand[{', '.join(operations)}]"
+        return ", ".join(operations)
 
 
 def turn_on(
@@ -109,6 +109,7 @@ class SnoozCommandProcessor(ABC):
             "start_execution",
             CommandProcessorState.IDLE,
             CommandProcessorState.EXECUTING,
+            before=self._before_execution_start,
         )
         self._machine.add_transition(
             "disconnected",
@@ -182,6 +183,9 @@ class SnoozCommandProcessor(ABC):
                 )
             )
             self.on_unhandled_exception()
+
+    def _before_execution_start(self) -> None:
+        _LOGGER.debug(self._(f"Executing {self.command}"))
 
     @abstractmethod
     async def _async_execute(self, api: SnoozDeviceApi) -> None:
@@ -258,6 +262,10 @@ class ImmediatelyInvokedCommand(SnoozCommandProcessor):
 
 
 class TransitionedCommand(SnoozCommandProcessor):
+    @property
+    def is_resuming(self) -> bool:
+        return self.last_disconnect_time is not None
+
     def __init__(
         self,
         loop: AbstractEventLoop,
@@ -288,13 +296,6 @@ class TransitionedCommand(SnoozCommandProcessor):
 
         if self._starting_state is None:
             self._starting_state = current_state
-
-        _LOGGER.debug(
-            self._(
-                f"Starting {self.command} from {current_state} "
-                f"with {self._remaining_duration} remaining"
-            )
-        )
 
         # when there's no remaining duration, it means the transition
         # resumed after being disconnected for longer than the original transition,
@@ -358,6 +359,14 @@ class TransitionedCommand(SnoozCommandProcessor):
         end_volume: int,
         duration: timedelta,
     ) -> None:
+        action = "resume" if self.is_resuming else "start"
+        _LOGGER.debug(
+            self._(
+                f"[{action}] volume {start_volume}% to {end_volume}%"
+                f"{'' if turning_on else ' then turn off'} in {duration}"
+            )
+        )
+
         last_volume = start_volume
 
         async def on_update(volume: float) -> None:
@@ -366,6 +375,7 @@ class TransitionedCommand(SnoozCommandProcessor):
             next_volume = int(round(volume))
 
             if next_volume != last_volume:
+                _LOGGER.debug(self._(f"[{action}] set volume {next_volume}%"))
                 await api.async_set_volume(next_volume)
                 last_volume = next_volume
 
@@ -373,16 +383,29 @@ class TransitionedCommand(SnoozCommandProcessor):
             if not turning_on:
                 nonlocal last_volume
 
-                await api.async_set_power(False)
+                initial_volume: int | None = None
 
-                # if we want to turn on again, make sure we reset
-                # the volume before starting the transition
                 if (
                     self._starting_state is not None
                     and self._starting_state.volume is not None
                     and self._starting_state.volume != last_volume
                 ):
-                    await api.async_set_volume(self._starting_state.volume)
+                    initial_volume = self._starting_state.volume
+                    _LOGGER.debug(
+                        self._(
+                            f"[{action}] power off and reset to "
+                            "{self._starting_state.volume}% volume"
+                        )
+                    )
+                else:
+                    _LOGGER.debug(self._(f"[{action}] power off"))
+
+                await api.async_set_power(False)
+
+                # if we want to turn on again, make sure we reset
+                # the volume before starting the transition
+                if initial_volume is not None:
+                    await api.async_set_volume(initial_volume)
 
         await self._transition.async_run(
             self.loop, start_volume, end_volume, duration, on_update, on_complete

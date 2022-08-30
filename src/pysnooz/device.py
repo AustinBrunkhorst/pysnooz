@@ -83,7 +83,7 @@ class SnoozDevice:
         self._device = device
         self._token = token
         self._loop = loop
-        self._last_dispatched_connection_status = None
+        self._last_dispatched_connection_status: SnoozConnectionStatus | None = None
         self._connection_complete = Event()
         self._connections_exhausted = Event()
         self._connection_attempts: int = 0
@@ -91,6 +91,7 @@ class SnoozDevice:
         self._connection_ready_time: datetime | None = None
         self._api: SnoozDeviceApi | None = None
         self._connect_lock = Lock()
+        self._command_lock = Lock()
         self._connection_task: Task[None] | None = None
         self._reconnection_task: Task[None] | None = None
         self._current_command: SnoozCommandProcessor | None = None
@@ -202,12 +203,13 @@ class SnoozDevice:
         try:
             await self._async_wait_for_connection_complete()
 
-            if (
-                self._api is not None
-                and command is not None
-                and command.state != CommandProcessorState.COMPLETE
-            ):
-                await command.async_execute(self._api)
+            async with self._command_lock:
+                if (
+                    self._api is not None
+                    and command is not None
+                    and command.state != CommandProcessorState.COMPLETE
+                ):
+                    await command.async_execute(self._api)
         except CancelledError:
             # happens when async_disconnect() is called during a connection
             # we swallow it because we want to escape execution of the command
@@ -280,10 +282,12 @@ class SnoozDevice:
         self._connections_exhausted.clear()
 
     def _on_connection_status_change(self, e: EventData) -> None:
-        new_status = self._machine.connection_status
+        new_status = self.connection_status
 
         if new_status == self._last_dispatched_connection_status:
             return
+
+        _LOGGER.debug(self._status(new_status))
 
         self._last_dispatched_connection_status = new_status
         self.events.on_connection_status_change(new_status)
@@ -299,8 +303,9 @@ class SnoozDevice:
     def _after_device_disconnected(self, e: EventData) -> None:
         reason: DisconnectionReason = e.kwargs.get("reason")
         _LOGGER.debug(
-            self._(f"disconnected because {self._describe(reason)}"),
-            exc_info=reason != DisconnectionReason.USER,
+            self._(f"disconnected because {self._reason(reason)}"),
+            exc_info=reason
+            not in (DisconnectionReason.USER, DisconnectionReason.DEVICE),
         )
 
     def _on_device_disconnected(self, e: EventData) -> None:
@@ -354,7 +359,7 @@ class SnoozDevice:
             name=f"[Reconnect] {self.display_name}",
         )
 
-    def _describe(self, reason: DisconnectionReason) -> str:
+    def _reason(self, reason: DisconnectionReason) -> str:
         descriptions = {
             DisconnectionReason.USER: (
                 f"{SnoozDevice.async_disconnect.__qualname__}() was called"
@@ -367,11 +372,19 @@ class SnoozDevice:
                 "the device couldn't establish a connection"
             ),
         }
-        return descriptions[reason]
+        return descriptions[reason] or reason.name
+
+    def _status(self, status: SnoozConnectionStatus) -> str:
+        descriptions = {
+            SnoozConnectionStatus.DISCONNECTED: "🔴 Disconnected",
+            SnoozConnectionStatus.CONNECTING: "🟡 Connecting",
+            SnoozConnectionStatus.CONNECTED: "🟢 Connected",
+        }
+        return descriptions[status] or status.name
 
     def _(self, message: str) -> str:
         """Format a message for logging."""
-        return f"[{self.display_name}] ({self.connection_status.name}): {message}"
+        return f"[{self.display_name}] {message}"
 
     @property
     def display_name(self) -> str:

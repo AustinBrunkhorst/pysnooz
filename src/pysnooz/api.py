@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from asyncio import Lock
 from enum import IntEnum
 from typing import Any
 
-from bleak import BleakClient, BleakError
+from bleak import BleakClient
+from bleak.exc import BleakDBusError
 from events import Events
 
 # uuid of the characteristic that reads snooz state
@@ -48,6 +50,7 @@ class SnoozDeviceApi:
         self.events = Events(("on_disconnect", "on_state_change"))
         self._client = client
         self._client.set_disconnected_callback(lambda _: self.events.on_disconnect())
+        self._write_lock = Lock()
 
     @property
     def is_connected(self) -> bool:
@@ -86,15 +89,23 @@ class SnoozDeviceApi:
         attempts = 0
         payload = bytes([command]) + data
 
-        while self._client.is_connected and attempts < RETRY_TRANSIENT_FAILURE_COUNT:
-            try:
-                await self._client.write_gatt_char(WRITE_STATE_UUID, payload)
-                return
-            except BleakError:
-                attempts += 1
+        async with self._write_lock:
+            while (
+                self._client.is_connected and attempts < RETRY_TRANSIENT_FAILURE_COUNT
+            ):
+                try:
+                    await self._client.write_gatt_char(WRITE_STATE_UUID, payload)
+                    return
+                except BleakDBusError as ex:
+                    if ex.dbus_error == "org.bluez.Error.InProgress":
+                        attempts += 1
 
-                if attempts >= RETRY_TRANSIENT_FAILURE_COUNT:
-                    raise
+                        if attempts >= RETRY_TRANSIENT_FAILURE_COUNT:
+                            raise Exception(
+                                'Got "in progress" error {attempts} times'
+                            ) from ex
+                    else:
+                        raise
 
 
 def state_from_char_data(data: bytes) -> SnoozDeviceState:

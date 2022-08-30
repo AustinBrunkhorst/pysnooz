@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from bluetooth_sensor_state_data import BluetoothData
 from home_assistant_bluetooth import BluetoothServiceInfo
 
@@ -9,12 +11,14 @@ TOKEN_SEQUENCE = bytes(range(1, ADVERTISEMENT_TOKEN_LENGTH + 1))
 class SnoozAdvertisementData(BluetoothData):
     """Represents data from a SNOOZ advertisement."""
 
-    # string of hex digits stored in the device advertisement only in pairing mode
-    pairing_token: str
+    def __init__(self) -> None:
+        super().__init__()
+        # string of hex digits stored in the device advertisement only in pairing mode
+        self.pairing_token: str | None = None
 
-    # formatted name like "Snooz AABB"
-    # where AABB is the last 4 digits of the MAC address
-    display_name: str
+        # formatted name like "Snooz AABB"
+        # where AABB is the last 4 digits of the MAC address
+        self.display_name: str | None = None
 
     @property
     def is_pairing(self) -> bool:
