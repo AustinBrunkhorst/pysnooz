@@ -49,6 +49,16 @@ DEVICE_NO_MANUFACTURER_DATA = BluetoothServiceInfo(
     source="local",
 )
 
+DEVICE_UNRECOGNIZED_NAME = BluetoothServiceInfo(
+    name="LG Speaker",
+    address="00:00:00:00:CC:CC",
+    rssi=-63,
+    manufacturer_data={},
+    service_uuids=[],
+    service_data={},
+    source="local",
+)
+
 
 def test_display_name():
     assert get_snooz_display_name("Snooz", "00:00:00:00:00:00") == "Snooz 0000"
@@ -63,9 +73,10 @@ def test_display_name():
     assert parser.display_name == "Snooz ABCD"
 
 
-def test_no_manufacturer_data():
+def test_unsupported():
     parser = SnoozAdvertisementData()
     assert parser.supported(DEVICE_NO_MANUFACTURER_DATA) is False
+    assert parser.supported(DEVICE_UNRECOGNIZED_NAME) is False
 
 
 def test_pairing_mode():
