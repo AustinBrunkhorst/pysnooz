@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from asyncio import Lock
 from enum import IntEnum
@@ -20,6 +21,7 @@ MIN_DEVICE_VOLUME = 10
 
 # number of times to retry a transient command failure before giving up
 RETRY_WRITE_FAILURE_COUNT = 5
+RETRY_SLEEP_DURATIONS = [0, 0.5, 1, 1, 2]
 DBUS_ERRORS_TO_RETRY = (
     "org.bluez.Error",
     "org.bluez.Error.InProgress",
@@ -102,7 +104,7 @@ class SnoozDeviceApi:
         payload = bytes([command]) + data
 
         async with self._write_lock:
-            while self._client.is_connected and attempts < RETRY_WRITE_FAILURE_COUNT:
+            while self._client.is_connected and attempts <= RETRY_WRITE_FAILURE_COUNT:
                 try:
                     message = f"write {payload.hex()}"
                     if attempts > 0:
@@ -112,12 +114,17 @@ class SnoozDeviceApi:
                     return
                 except BleakDBusError as ex:
                     if ex.dbus_error in DBUS_ERRORS_TO_RETRY:
+                        sleep_duration = RETRY_SLEEP_DURATIONS[
+                            attempts % len(RETRY_SLEEP_DURATIONS)
+                        ]
                         attempts += 1
 
-                        if attempts >= RETRY_WRITE_FAILURE_COUNT:
+                        if attempts > RETRY_WRITE_FAILURE_COUNT:
                             raise Exception(
                                 f"Got transient error {attempts} times"
                             ) from ex
+
+                        await asyncio.sleep(sleep_duration)
                     else:
                         raise
 
