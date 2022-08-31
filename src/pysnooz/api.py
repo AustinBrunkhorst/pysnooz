@@ -24,6 +24,7 @@ RETRY_WRITE_FAILURE_COUNT = 5
 RETRY_SLEEP_DURATIONS = [0, 0.5, 1, 1, 2]
 DBUS_ERRORS_TO_RETRY = (
     "org.bluez.Error",
+    "org.bluez.Error.Failed",
     "org.bluez.Error.InProgress",
 )
 
@@ -104,15 +105,18 @@ class SnoozDeviceApi:
         payload = bytes([command]) + data
 
         async with self._write_lock:
+            last_ex: BleakDBusError = None
+
             while self._client.is_connected and attempts <= RETRY_WRITE_FAILURE_COUNT:
                 try:
                     message = f"write {payload.hex()}"
-                    if attempts > 0:
-                        message += f" (attempt {attempts+1})"
+                    if attempts > 0 and last_ex is not None:
+                        message += f" (attempt {attempts+1}, last error: {last_ex})"
                     _LOGGER.debug(self._(message))
                     await self._client.write_gatt_char(WRITE_STATE_UUID, payload)
                     return
                 except BleakDBusError as ex:
+                    last_ex = ex
                     if ex.dbus_error in DBUS_ERRORS_TO_RETRY:
                         sleep_duration = RETRY_SLEEP_DURATIONS[
                             attempts % len(RETRY_SLEEP_DURATIONS)

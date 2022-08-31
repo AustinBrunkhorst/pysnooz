@@ -170,8 +170,9 @@ async def test_auto_reconnect(mocker: MockerFixture, snooz: SnoozTestFixture) ->
 
     snooz.mock_client.trigger_disconnect()
     assert not device.is_connected
+
     # wait for the reconnection task to complete
-    await asyncio.sleep(0.1)
+    await asyncio.wait_for(device._reconnection_task, timeout=1)
 
     assert on_connection_change.mock_calls == (
         [
@@ -231,21 +232,33 @@ async def test_auto_reconnect_device_unavailable(
 async def test_manual_disconnect(
     mocker: MockerFixture, snooz: SnoozTestFixture
 ) -> None:
+    on_connection_change = mocker.stub()
 
     device = snooz.create_device()
+    device.events.on_connection_status_change += on_connection_change
+
+    # should be noop when not connected
+    await device.async_disconnect()
+
+    on_connection_change.assert_not_called()
+    on_connection_change.reset_mock()
 
     await snooz.assert_command_success(device, turn_on())
     assert device.is_connected
 
-    on_connection_change = mocker.stub()
-    device.events.on_connection_status_change += on_connection_change
-
     await device.async_disconnect()
     assert not device.is_connected
+    await asyncio.sleep(0.1)
 
-    # shouldn't try to reconnect
-    assert call(SnoozConnectionStatus.CONNECTING) not in on_connection_change.mock_calls
-    assert call(SnoozConnectionStatus.CONNECTED) not in on_connection_change.mock_calls
+    assert device._reconnection_task is None
+
+    assert on_connection_change.mock_calls == (
+        [
+            call(SnoozConnectionStatus.CONNECTING),
+            call(SnoozConnectionStatus.CONNECTED),
+            call(SnoozConnectionStatus.DISCONNECTED),
+        ]
+    )
 
 
 @pytest.mark.asyncio
@@ -280,6 +293,79 @@ async def _test_connection_exception(
     )
     assert not device.is_connected
     assert device.state.volume != 26
+    on_state_change.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_write_exception_during_reconnection(
+    mocker: MockerFixture, snooz: SnoozTestFixture
+) -> None:
+    mock_authenticate = mocker.patch(
+        "pysnooz.device.SnoozDeviceApi.async_authenticate_connection",
+        autospec=True,
+    )
+
+    def trigger_disconnect_then_raises(*args, **kwargs):
+        if mock_authenticate.call_count == 1:
+            snooz.mock_client.trigger_disconnect()
+        else:
+            raise Exception("Testing an unexpected exception")
+
+    mock_authenticate.side_effect = trigger_disconnect_then_raises
+
+    on_connection_change = mocker.stub()
+    on_state_change = mocker.stub()
+
+    device = snooz.create_device()
+    device.events.on_connection_status_change += on_connection_change
+    device.events.on_state_change += on_state_change
+
+    await snooz.assert_command_unexpected_error(device, turn_on(volume=26))
+    assert on_connection_change.mock_calls == (
+        [
+            call(SnoozConnectionStatus.CONNECTING),
+            call(SnoozConnectionStatus.DISCONNECTED),
+            call(SnoozConnectionStatus.CONNECTING),
+            call(SnoozConnectionStatus.DISCONNECTED),
+        ]
+    )
+    on_state_change.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_manual_disconnect_during_reconnect(
+    mocker: MockerFixture, snooz: SnoozTestFixture
+) -> None:
+    mock_authenticate = mocker.patch(
+        "pysnooz.device.SnoozDeviceApi.async_authenticate_connection",
+        autospec=True,
+    )
+
+    async def manual_disconnect_before_last_call(*args, **kwargs):
+        if mock_authenticate.call_count == MAX_RECONNECTION_ATTEMPTS:
+            await device.async_disconnect()
+        else:
+            snooz.mock_client.trigger_disconnect()
+
+    mock_authenticate.side_effect = manual_disconnect_before_last_call
+
+    on_connection_change = mocker.stub()
+    on_state_change = mocker.stub()
+
+    device = snooz.create_device()
+    device.events.on_connection_status_change += on_connection_change
+    device.events.on_state_change += on_state_change
+
+    await snooz.assert_command_cancelled(device, turn_on(volume=26))
+    assert on_connection_change.mock_calls == (
+        [
+            *[
+                call(SnoozConnectionStatus.CONNECTING),
+                call(SnoozConnectionStatus.DISCONNECTED),
+            ]
+            * MAX_RECONNECTION_ATTEMPTS
+        ]
+    )
     on_state_change.assert_not_called()
 
 
@@ -614,7 +700,6 @@ async def test_manual_disconnect_during_transition(
     await snooz.assert_command_cancelled(
         device, turn_on(volume=68, duration=timedelta(seconds=30))
     )
-    await asyncio.sleep(0.1)
     assert not device.is_connected
     assert device.state.volume != 68
 

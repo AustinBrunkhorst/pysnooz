@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from asyncio import AbstractEventLoop, CancelledError, Event, Lock, Task
 from datetime import datetime
@@ -30,6 +31,7 @@ from pysnooz.const import UNEXPECTED_ERROR_LOG_MESSAGE
 _LOGGER = logging.getLogger(__name__)
 
 MAX_RECONNECTION_ATTEMPTS = 3
+RECONNECTION_DELAY_SECONDS = 0.25
 DEVICE_UNAVAILABLE_EXCEPTIONS = (
     BleakAbortedError,
     BleakConnectionError,
@@ -116,17 +118,13 @@ class SnoozDevice:
             initial=SnoozConnectionStatus.DISCONNECTED,
             after_state_change=self._on_connection_status_change,
             send_event=True,
+            on_exception=self._on_machine_exception,
         )
         self._machine.add_transition(
             "connection_start",
             SnoozConnectionStatus.DISCONNECTED,
             SnoozConnectionStatus.CONNECTING,
             before=self._on_connection_start,
-        )
-        self._machine.add_transition(
-            "device_connected",
-            SnoozConnectionStatus.CONNECTING,
-            "=",
         )
         self._machine.add_transition(
             "connection_ready",
@@ -244,22 +242,29 @@ class SnoozDevice:
         await self._connection_complete.wait()
 
     async def _async_connect(self) -> None:
-        if self.connection_status == SnoozConnectionStatus.DISCONNECTED:
-            self._machine.connection_start()
+        self._machine.connection_start()
 
         try:
             api = await self._async_create_api()
+            api.events.on_disconnect += lambda: self._machine.device_disconnected(
+                reason=DisconnectionReason.DEVICE
+            )
+            api.events.on_state_change += lambda state: self._on_receive_device_state(
+                state
+            )
+            self._before_device_connected()
             self._api = api
         except (DEVICE_UNAVAILABLE_EXCEPTIONS) as ex:
             raise SnoozDeviceUnavailableError() from ex
 
-        api.events.on_disconnect += lambda: self._machine.device_disconnected(
-            reason=DisconnectionReason.DEVICE
-        )
-        api.events.on_state_change += lambda state: self._on_receive_device_state(state)
+        # ensure each call with side effects checks the connection status
+        # to prevent a cancellation race condition
 
-        await api.async_authenticate_connection(bytes.fromhex(self._token))
-        await api.async_listen_for_state_changes()
+        if self.connection_status == SnoozConnectionStatus.CONNECTING:
+            await api.async_authenticate_connection(bytes.fromhex(self._token))
+
+        if self.connection_status == SnoozConnectionStatus.CONNECTING:
+            await api.async_listen_for_state_changes()
 
         if self.connection_status == SnoozConnectionStatus.CONNECTING:
             self._machine.connection_ready()
@@ -273,18 +278,52 @@ class SnoozDevice:
 
         return SnoozDeviceApi(client)
 
+    async def _async_reconnect(self) -> None:
+        await asyncio.sleep(RECONNECTION_DELAY_SECONDS)
+        await self._async_execute_current_command()
+
+    def _on_machine_exception(self, e: EventData) -> None:
+        # make sure any pending commands are completed
+        if (
+            self._current_command is not None
+            and self._current_command.state != CommandProcessorState.COMPLETE
+        ):
+            self._current_command.on_unhandled_exception()
+
+        _LOGGER.exception(
+            self._(
+                "An exception occurred during a state transition.\n"
+                + UNEXPECTED_ERROR_LOG_MESSAGE
+            )
+        )
+
     def _on_connection_start(self, e: EventData) -> None:
+        message = "Start connection"
+        if self._connection_attempts >= 1:
+            message += f" (attempt {self._connection_attempts})"
+        _LOGGER.debug(self._(message))
+
         self._connection_complete.clear()
         self._connections_exhausted.clear()
         self._connection_attempts += 1
         self._connection_start_time = datetime.now()
 
+    def _before_device_connected(self) -> None:
+        start_time = datetime.now()
+        if self._connection_start_time is not None:
+            start_time = self._connection_start_time
+        message = f"Got connection in {datetime.now() - start_time}"
+        if self._connection_attempts >= 1:
+            message += f" (attempt {self._connection_attempts})"
+        _LOGGER.debug(self._(message))
+
     def _on_connection_ready(self, e: EventData) -> None:
         self._connection_attempts = 0
         self._connection_ready_time = datetime.now()
-        self.events.on_connection_load_time(
-            datetime.now() - self._connection_ready_time
-        )
+        if self._connection_start_time is not None:
+            self.events.on_connection_load_time(
+                self._connection_ready_time - self._connection_start_time
+            )
         self._connection_complete.set()
         self._connections_exhausted.clear()
 
@@ -342,7 +381,7 @@ class SnoozDevice:
             _LOGGER.error(
                 self._(
                     f"Unavailable after {self._connection_attempts}"
-                    "connection attempts"
+                    " connection attempts"
                 )
             )
 
@@ -368,10 +407,16 @@ class SnoozDevice:
         # attempt to reconnect automatically
         # we don't await the result since this is called from a sync state transition
         # we cleanup this task on disconnect
-        self._reconnection_task = self._loop.create_task(
-            self._async_execute_current_command(),
+        reconnection_task = self._loop.create_task(
+            self._async_reconnect(),
             name=f"[Reconnect] {self.display_name}",
         )
+
+        # cancel previous tasks to avoid any zombies
+        if self._reconnection_task is not None and not self._reconnection_task.done():
+            self._reconnection_task.cancel()
+
+        self._reconnection_task = reconnection_task
 
     def _(self, message: str) -> str:
         """Format a message for logging."""
