@@ -62,6 +62,12 @@ Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/d
 <!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
 <!-- prettier-ignore-start -->
 <!-- markdownlint-disable -->
+<table>
+  <tr>
+    <td align="center"><a href="https://github.com/bradleysryder"><img src="https://avatars.githubusercontent.com/u/39577543?v=4?s=80" width="80px;" alt=""/><br /><sub><b>bradleysryder</b></sub></a><br /><a href="https://github.com/AustinBrunkhorst/pysnooz/commits?author=bradleysryder" title="Code">💻</a></td>
+  </tr>
+</table>
+
 <!-- markdownlint-restore -->
 <!-- prettier-ignore-end -->
 

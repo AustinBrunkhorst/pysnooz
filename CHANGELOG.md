@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.7.2 (2022-08-31)
+### Fix
+* Issue URL + sleep on write retry ([`bc57d51`](https://github.com/AustinBrunkhorst/pysnooz/commit/bc57d510a3288ca234390583d71d2e1f02c55bc6))
+
 ## v0.7.1 (2022-08-30)
 ### Fix
 * Add missing f-string ([`8637d3b`](https://github.com/AustinBrunkhorst/pysnooz/commit/8637d3b00d4307461d5229e4b822895daa4896de))
