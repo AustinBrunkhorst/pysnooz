@@ -2,7 +2,7 @@
 name = "pysnooz"
 version = "0.7.0"
 description = "Control SNOOZ white noise machines."
-authors = ["Austin Brunkhorst <contact@austinbrunkhorst.com>"]
+authors = ["Austin Brunkhorst <pysnooz@alb.dev>"]
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/AustinBrunkhorst/pysnooz"
