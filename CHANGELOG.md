@@ -2,6 +2,14 @@
 
 <!--next-version-placeholder-->
 
+## v0.7.3 (2022-08-31)
+### Fix
+* Improve resilience for exceptions ([`349ad59`](https://github.com/AustinBrunkhorst/pysnooz/commit/349ad59dacbfa7220bc5fe05197262e67c0959e6))
+
+### Documentation
+* Update .all-contributorsrc [skip ci] ([`b943305`](https://github.com/AustinBrunkhorst/pysnooz/commit/b94330500816d7423d11cde4ade6e4de64acc2cf))
+* Update README.md [skip ci] ([`f11d8fd`](https://github.com/AustinBrunkhorst/pysnooz/commit/f11d8fdb65f4e6e17f67c2aa717a5e5bf0607306))
+
 ## v0.7.2 (2022-08-31)
 ### Fix
 * Issue URL + sleep on write retry ([`bc57d51`](https://github.com/AustinBrunkhorst/pysnooz/commit/bc57d510a3288ca234390583d71d2e1f02c55bc6))
