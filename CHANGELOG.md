@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.7.1 (2022-08-30)
+### Fix
+* Add missing f-string ([`8637d3b`](https://github.com/AustinBrunkhorst/pysnooz/commit/8637d3b00d4307461d5229e4b822895daa4896de))
+
 ## v0.7.0 (2022-08-30)
 ### Feature
 * **docs:** Add initial usage ([`1d3f439`](https://github.com/AustinBrunkhorst/pysnooz/commit/1d3f43937493573c6979d01f91b01f7998d55edd))
