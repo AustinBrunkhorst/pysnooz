@@ -1,7 +1,7 @@
 # PySnooz
 
 <p align="center">
-  <img src="header.png" alt="Python Language + Bleak API + SNOOZ White Noise Machine" />
+  <img src="header.svg" alt="Python Language + Bleak API + SNOOZ White Noise Machine" />
 </p>
 
 <p>
