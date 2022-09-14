@@ -2,6 +2,13 @@
 
 <!--next-version-placeholder-->
 
+## v0.7.4 (2022-09-08)
+### Fix
+* Bump bluetooth packages ([`595e575`](https://github.com/AustinBrunkhorst/pysnooz/commit/595e57564857cbbb0000c19dc7746b0ae9264677))
+
+### Documentation
+* Update README ([`828ce0d`](https://github.com/AustinBrunkhorst/pysnooz/commit/828ce0d02d6e3fe5c0959a02855585a73b997246))
+
 ## v0.7.3 (2022-08-31)
 ### Fix
 * Improve resilience for exceptions ([`349ad59`](https://github.com/AustinBrunkhorst/pysnooz/commit/349ad59dacbfa7220bc5fe05197262e67c0959e6))
