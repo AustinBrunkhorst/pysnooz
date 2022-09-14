@@ -443,7 +443,7 @@ test = ["pytest"]
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.9"
-content-hash = "1124f44bf7d7dee2eda86e3d9f8de7b5083f8474e6150fd1c8e60a5e4a255c86"
+content-hash = "2e65bb7e54cc73be5b93447e35067eb0a64662b4afa98141d48ec2487707cde6"
 
 [metadata.files]
 async-timeout = [
