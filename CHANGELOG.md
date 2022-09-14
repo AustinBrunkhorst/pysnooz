@@ -2,6 +2,11 @@
 
 <!--next-version-placeholder-->
 
+## v0.7.5 (2022-09-14)
+### Fix
+* Bump bleak to 0.17.0 ([`db3a57a`](https://github.com/AustinBrunkhorst/pysnooz/commit/db3a57a706a49cc21294226098ca1cafd4d19689))
+* Bump bleak to 0.17.0 ([`010b311`](https://github.com/AustinBrunkhorst/pysnooz/commit/010b31172c936626db8d4c3dc0269d01057c10ab))
+
 ## v0.7.4 (2022-09-08)
 ### Fix
 * Bump bluetooth packages ([`595e575`](https://github.com/AustinBrunkhorst/pysnooz/commit/595e57564857cbbb0000c19dc7746b0ae9264677))
