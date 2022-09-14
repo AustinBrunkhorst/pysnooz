@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.7.6 (2022-09-14)
+### Fix
+* Loosen package constraints ([`34f0a14`](https://github.com/AustinBrunkhorst/pysnooz/commit/34f0a145e74ad9c2c7c7a14308061079f93f324f))
+
 ## v0.7.5 (2022-09-14)
 ### Fix
 * Bump bleak to 0.17.0 ([`db3a57a`](https://github.com/AustinBrunkhorst/pysnooz/commit/db3a57a706a49cc21294226098ca1cafd4d19689))
