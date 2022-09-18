@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.7.7 (2022-09-18)
+### Fix
+* Include mock client in main package ([`27dfbd6`](https://github.com/AustinBrunkhorst/pysnooz/commit/27dfbd6d71d9b2874f417dbd94cb24824ae932e2))
+
 ## v0.7.6 (2022-09-14)
 ### Fix
 * Loosen package constraints ([`34f0a14`](https://github.com/AustinBrunkhorst/pysnooz/commit/34f0a145e74ad9c2c7c7a14308061079f93f324f))
