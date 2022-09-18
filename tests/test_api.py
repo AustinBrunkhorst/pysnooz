@@ -12,7 +12,7 @@ from pysnooz.api import (
     SnoozDeviceState,
     UnknownSnoozState,
 )
-from tests.mock import MockSnoozClient
+from pysnooz.testing import MockSnoozClient
 
 DBUS_ERROR = BleakDBusError("org.bluez.Error", [])
 DBUS_ERROR_IN_PROGRESS = BleakDBusError("org.bluez.Error.InProgress", [])

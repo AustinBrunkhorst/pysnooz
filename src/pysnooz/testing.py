@@ -34,6 +34,10 @@ class MockSnoozClient(BaseBleakClient):
         if self._disconnected_callback is not None:
             self._disconnected_callback(self)
 
+    def trigger_state(self, state: SnoozDeviceState) -> None:
+        self._state = state
+        self._on_state_update()
+
     def reset_mock(self, initial_state: bool = False) -> None:
         self._is_connected = True
         self._has_set_token = False

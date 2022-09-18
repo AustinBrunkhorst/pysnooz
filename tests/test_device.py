@@ -24,7 +24,7 @@ from pysnooz.device import (
     SnoozDevice,
     SnoozDeviceState,
 )
-from tests.mock import MockSnoozClient
+from pysnooz.testing import MockSnoozClient
 
 
 class SnoozTestFixture:
