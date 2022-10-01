@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.7.8 (2022-10-01)
+### Fix
+* Bump bleak and bleak-retry-connector ([`1c79ae4`](https://github.com/AustinBrunkhorst/pysnooz/commit/1c79ae41ea4a0cc5f6afd6b6aedfa824446c097b))
+
 ## v0.7.7 (2022-09-18)
 ### Fix
 * Include mock client in main package ([`27dfbd6`](https://github.com/AustinBrunkhorst/pysnooz/commit/27dfbd6d71d9b2874f417dbd94cb24824ae932e2))
