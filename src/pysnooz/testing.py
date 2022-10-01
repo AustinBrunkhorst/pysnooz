@@ -53,6 +53,10 @@ class MockSnoozClient(BaseBleakClient):
         raise NotImplementedError()
 
     @property
+    def mtu_size(self) -> int:
+        raise NotImplementedError()
+
+    @property
     def is_connected(self) -> bool:
         return self._is_connected
 
