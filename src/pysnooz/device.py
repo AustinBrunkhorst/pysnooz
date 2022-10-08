@@ -68,7 +68,9 @@ class SnoozDeviceUnavailableError(Exception):
 
 
 class SnoozDevice:
-    def __init__(self, device: BLEDevice, token: str, loop: AbstractEventLoop) -> None:
+    def __init__(
+        self, device: BLEDevice, token: str, loop: AbstractEventLoop | None = None
+    ) -> None:
         self.state: SnoozDeviceState = UnknownSnoozState
         self.events = Events(
             (
@@ -85,7 +87,7 @@ class SnoozDevice:
         )
         self._device = device
         self._token = token
-        self._loop = loop
+        self._loop = loop if loop is not None else asyncio.get_running_loop()
         self._last_dispatched_connection_status: SnoozConnectionStatus | None = None
         self._connection_complete = Event()
         self._connections_exhausted = Event()
