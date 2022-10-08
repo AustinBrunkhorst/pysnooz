@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.8.0 (2022-10-08)
+### Feature
+* Make loop optional on device ([`09ea58d`](https://github.com/AustinBrunkhorst/pysnooz/commit/09ea58d8b6bfc1e52a86880dc8bfd02ef3828d71))
+
 ## v0.7.9 (2022-10-08)
 ### Fix
 * Refactor deprecated bleak disconnect callback ([`2491051`](https://github.com/AustinBrunkhorst/pysnooz/commit/2491051bb197df6ba18218cb2ebfa39bacfd89da))
