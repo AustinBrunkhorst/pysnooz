@@ -1,3 +1,5 @@
+"""Utilities for integration testing Snooz devices."""
+
 from __future__ import annotations
 
 from typing import Any, Awaitable, Callable
@@ -7,11 +9,54 @@ from bleak import BleakClient, BLEDevice
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.service import BleakGATTServiceCollection
 
-from pysnooz.api import READ_STATE_UUID, WRITE_STATE_UUID, CommandId, SnoozDeviceState
+from pysnooz.api import (
+    READ_STATE_UUID,
+    WRITE_STATE_UUID,
+    CommandId,
+    SnoozDeviceApi,
+    SnoozDeviceState,
+    UnknownSnoozState,
+)
+from pysnooz.device import SnoozDevice
+
+
+class MockSnoozDevice(SnoozDevice):
+    """Used for testing integration with Bleak."""
+
+    def __init__(
+        self,
+        address_or_ble_device: BLEDevice | str,
+        initial_state: SnoozDeviceState = UnknownSnoozState,
+    ) -> None:
+        """Create a mock snooz device that does not make any bluetooth calls."""
+        super().__init__(address_or_ble_device, "")
+
+        def _on_disconnected(_: BleakClient) -> None:
+            if self._api is not None:
+                self._api.events.on_disconnect()
+
+        self.state = initial_state
+        self._mock_client = MockSnoozClient(address_or_ble_device, _on_disconnected)
+        self._mock_client.trigger_state(initial_state)
+
+        async def _create_mock_api() -> SnoozDeviceApi:
+            return SnoozDeviceApi(self._mock_client)
+
+        self._async_create_api = _create_mock_api  # type: ignore
+
+    def trigger_disconnect(self) -> None:
+        """Trigger a disconnect."""
+        self._mock_client.trigger_disconnect()
+
+    def trigger_state(self, new_state: SnoozDeviceState) -> None:
+        """Trigger a new state."""
+        self._mock_client.trigger_state(new_state)
 
 
 class MockSnoozClient(BleakClient):
-    def __init__(
+    """Used for testing integration with Bleak."""
+
+    def __init__(  # pylint: disable=super-init-not-called
         self,
         address_or_ble_device: BLEDevice | str,
         disconnected_callback: Callable[[BleakClient], None] | None = None,
@@ -36,6 +81,7 @@ class MockSnoozClient(BleakClient):
         return True
 
     def trigger_disconnect(self) -> None:
+        """Set the device as disconnected and trigger callbacks."""
         if not self._is_connected:
             return
 
@@ -45,10 +91,12 @@ class MockSnoozClient(BleakClient):
             self._disconnected_callback(self)
 
     def trigger_state(self, state: SnoozDeviceState) -> None:
+        """Set the current state and notify subscribers."""
         self._state = state
         self._on_state_update()
 
     def reset_mock(self, initial_state: bool = False) -> None:
+        """Reset the mock state."""
         self._is_connected = True
         self._has_set_token = False
         self._notify_callback = None
@@ -56,7 +104,7 @@ class MockSnoozClient(BleakClient):
         if initial_state:
             self._state = SnoozDeviceState(on=False, volume=10)
 
-    async def pair(self) -> bool:
+    async def pair(self, *args: Any, **kwargs: Any) -> bool:
         raise NotImplementedError()
 
     async def unpair(self) -> bool:
@@ -148,6 +196,7 @@ class MockSnoozClient(BleakClient):
 
 
 def char_data_from_state(state: SnoozDeviceState) -> bytearray:
+    """Converts device data to device state"""
     if state.volume is None:
         raise ValueError("Volume must be specified")
 
