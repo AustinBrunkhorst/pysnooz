@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.7.9 (2022-10-08)
+### Fix
+* Refactor deprecated bleak disconnect callback ([`2491051`](https://github.com/AustinBrunkhorst/pysnooz/commit/2491051bb197df6ba18218cb2ebfa39bacfd89da))
+
 ## v0.7.8 (2022-10-01)
 ### Fix
 * Bump bleak and bleak-retry-connector ([`1c79ae4`](https://github.com/AustinBrunkhorst/pysnooz/commit/1c79ae41ea4a0cc5f6afd6b6aedfa824446c097b))
