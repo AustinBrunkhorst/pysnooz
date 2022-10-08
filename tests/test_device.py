@@ -1,11 +1,15 @@
 # mypy: warn_unreachable=False
+from __future__ import annotations
+
 import asyncio
 import re
 from asyncio import AbstractEventLoop
 from datetime import timedelta
+from typing import Any, Callable
 from unittest.mock import MagicMock, call
 
 import pytest
+from bleak import BleakClient, BleakGATTServiceCollection
 from bleak.backends.device import BLEDevice
 from pytest_mock import MockerFixture
 
@@ -33,17 +37,16 @@ class SnoozTestFixture:
         ble_device: BLEDevice,
         token: str,
         loop: AbstractEventLoop,
-        mock_client: MockSnoozClient,
         mock_connect: MagicMock,
+        trigger_disconnect: Callable[[SnoozDevice], None],
     ):
         self.ble_device = ble_device
         self.token = token
         self.loop = loop
-        self.mock_client = mock_client
         self.mock_connect = mock_connect
+        self.trigger_disconnect = trigger_disconnect
 
     def create_device(self) -> SnoozDevice:
-        self.mock_client.reset_mock(initial_state=True)
         return SnoozDevice(self.ble_device, self.token, self.loop)
 
     def mock_connection_fails(self) -> None:
@@ -93,21 +96,34 @@ class SnoozTestFixture:
 def snooz(mocker: MockerFixture, event_loop: AbstractEventLoop) -> SnoozTestFixture:
     device = BLEDevice("AA:BB:CC:DD:EE:FF", "Snooz-EEFF")
     token = "AABBCCDDEEFF"
-    mock_client = MockSnoozClient(device)
 
-    def get_connected_client(*args, **kwargs):
-        mock_client.reset_mock()
-        return mock_client
+    def get_connected_client(
+        client_class: type[BleakClient],
+        device: BLEDevice,
+        name: str,
+        disconnected_callback: Callable[[BleakClient], None] | None,
+        max_attempts: int = 0,
+        cached_services: BleakGATTServiceCollection | None = None,
+        ble_device_callback: Callable[[], BLEDevice] | None = None,
+        use_services_cache: bool = False,
+        **kwargs: Any,
+    ) -> MockSnoozClient:
+        return MockSnoozClient(device, disconnected_callback)
 
     mock_connect = mocker.patch("pysnooz.device.establish_connection", autospec=True)
     mock_connect.side_effect = get_connected_client
+
+    def trigger_disconnect(target: SnoozDevice) -> None:
+        # this is hacky, but unfortunately Bleak's requirements
+        # for passing the disconnect callback in the constructor brought us here.
+        target._api._client.trigger_disconnect()  # type: ignore
 
     return SnoozTestFixture(
         ble_device=device,
         token=token,
         loop=event_loop,
-        mock_client=mock_client,
         mock_connect=mock_connect,
+        trigger_disconnect=trigger_disconnect,
     )
 
 
@@ -120,15 +136,19 @@ def test_display_name(snooz: SnoozTestFixture) -> None:
 async def test_basic_commands(mocker: MockerFixture, snooz: SnoozTestFixture) -> None:
     on_connection_status_change = mocker.stub()
     on_state_change = mocker.stub()
+    subscription_callback = mocker.stub()
 
     device = snooz.create_device()
 
     device.events.on_state_change += on_state_change
     device.events.on_connection_status_change += on_connection_status_change
 
+    unsubscribe = device.subscribe_to_state_change(subscription_callback)
+
     # events should not occur until the device is connected
     on_connection_status_change.assert_not_called()
     on_state_change.assert_not_called()
+    subscription_callback.assert_not_called()
 
     await snooz.assert_command_success(device, turn_on(volume=25))
     assert device.state.on is True
@@ -137,24 +157,45 @@ async def test_basic_commands(mocker: MockerFixture, snooz: SnoozTestFixture) ->
         [call(SnoozConnectionStatus.CONNECTING), call(SnoozConnectionStatus.CONNECTED)]
     )
     on_connection_status_change.reset_mock()
+
     # for api simplicity, you can set the volume and power state in one command, but it
     # translates to two ble char writes
     assert on_state_change.call_count == 2
     on_state_change.assert_has_calls([call(SnoozDeviceState(on=True, volume=25))])
     on_state_change.reset_mock()
 
+    # two connection status changes, two state changes
+    assert subscription_callback.call_count == 4
+    subscription_callback.reset_mock()
+
     await snooz.assert_command_success(device, turn_off())
     assert device.state.on is False
     on_state_change.assert_called_once_with(SnoozDeviceState(on=False, volume=25))
     on_state_change.reset_mock()
+    subscription_callback.assert_called_once()
+    subscription_callback.reset_mock()
 
     await snooz.assert_command_success(device, set_volume(36))
     assert device.state.volume == 36
     on_state_change.assert_called_once_with(SnoozDeviceState(on=False, volume=36))
     on_state_change.reset_mock()
+    subscription_callback.assert_called_once()
+    subscription_callback.reset_mock()
 
     # no other status changes should have occurred
     on_connection_status_change.assert_not_called()
+
+    # when unsubscribe is called, the callback should stop being called
+    unsubscribe()
+
+    await snooz.assert_command_success(device, turn_on(99))
+    subscription_callback.assert_not_called()
+
+    await snooz.assert_command_success(device, turn_off())
+    subscription_callback.assert_not_called()
+
+    await snooz.assert_command_success(device, set_volume(15))
+    subscription_callback.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -168,7 +209,7 @@ async def test_auto_reconnect(mocker: MockerFixture, snooz: SnoozTestFixture) ->
     await snooz.assert_command_success(device, turn_on())
     assert device.is_connected
 
-    snooz.mock_client.trigger_disconnect()
+    snooz.trigger_disconnect(device)
     assert not device.is_connected
 
     # wait for the reconnection task to complete
@@ -208,7 +249,7 @@ async def test_auto_reconnect_device_unavailable(
 
     snooz.mock_connection_fails()
 
-    snooz.mock_client.trigger_disconnect()
+    snooz.trigger_disconnect(device)
     assert not device.is_connected
 
     await asyncio.wait_for(device._connections_exhausted.wait(), timeout=3)
@@ -307,7 +348,7 @@ async def test_write_exception_during_reconnection(
 
     def trigger_disconnect_then_raises(*args, **kwargs):
         if mock_authenticate.call_count == 1:
-            snooz.mock_client.trigger_disconnect()
+            snooz.trigger_disconnect(device)
         else:
             raise Exception("Testing an unexpected exception")
 
@@ -345,7 +386,7 @@ async def test_manual_disconnect_during_reconnect(
         if mock_authenticate.call_count == MAX_RECONNECTION_ATTEMPTS:
             await device.async_disconnect()
         else:
-            snooz.mock_client.trigger_disconnect()
+            snooz.trigger_disconnect(device)
 
     mock_authenticate.side_effect = manual_disconnect_before_last_call
 
@@ -374,7 +415,7 @@ async def test_disconnect_before_ready(
     mocker: MockerFixture, snooz: SnoozTestFixture
 ) -> None:
     async def disconnects(*args, **kwargs):
-        snooz.mock_client.trigger_disconnect()
+        snooz.trigger_disconnect(device)
 
     mocker.patch(
         "pysnooz.device.SnoozDeviceApi.async_authenticate_connection", new=disconnects
@@ -474,7 +515,7 @@ async def test_disconnect_before_ready_then_reconnects(
     )
 
     def trigger_disconnect_once(*args, **kwargs):
-        snooz.mock_client.trigger_disconnect()
+        snooz.trigger_disconnect(device)
         mock_authenticate.side_effect = None
 
     mock_authenticate.side_effect = trigger_disconnect_once
@@ -545,7 +586,7 @@ async def test_disconnect_while_reconnecting_before_ready(
     )
 
     def trigger_disconnect_twice(*args, **kwargs):
-        snooz.mock_client.trigger_disconnect()
+        snooz.trigger_disconnect(device)
 
         if mock_authenticate.call_count >= 2:
             mock_authenticate.side_effect = None
@@ -592,7 +633,7 @@ async def test_device_disconnects_during_transition(
     async def disconnect_occasionally(api: SnoozDeviceApi, volume: int) -> None:
         nonlocal total_set_volume_calls
         if total_set_volume_calls % disconnect_every == 0:
-            snooz.mock_client.trigger_disconnect()
+            snooz.trigger_disconnect(device)
         else:
             await real_async_set_volume(api, volume)
 
@@ -656,7 +697,7 @@ async def test_device_unavailable_during_transition(
         nonlocal total_set_volume_calls
         if total_set_volume_calls == disconnect_after:
             snooz.mock_connection_fails()
-            snooz.mock_client.trigger_disconnect()
+            snooz.trigger_disconnect(device)
         else:
             await real_async_set_volume(api, volume)
 

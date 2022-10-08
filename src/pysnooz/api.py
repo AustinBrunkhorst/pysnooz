@@ -58,12 +58,11 @@ class CommandId(IntEnum):
 class SnoozDeviceApi:
     def __init__(
         self,
-        client: BleakClient,
+        client: BleakClient | None = None,
         format_log_message: Callable[[str], str] | None = None,
     ) -> None:
         self.events = Events(("on_disconnect", "on_state_change"))
         self._client = client
-        self._client.set_disconnected_callback(lambda _: self.events.on_disconnect())
         self._write_lock = Lock()
         self._ = format_log_message or (lambda msg: msg)
 
@@ -71,8 +70,13 @@ class SnoozDeviceApi:
     def is_connected(self) -> bool:
         return self._client is not None and self._client.is_connected
 
+    def set_client(self, client: BleakClient) -> None:
+        self._client = client
+
     async def async_disconnect(self) -> None:
-        self._client.set_disconnected_callback(None)
+        if self._client is None:
+            raise Exception("Called async_disconnect with no client")
+
         await self._client.disconnect()
 
     async def async_authenticate_connection(self, token: bytes) -> None:
@@ -88,10 +92,16 @@ class SnoozDeviceApi:
         await self._async_write_command(CommandId.SET_VOLUME, bytes([volume]))
 
     async def async_read_state(self, use_cached: bool = False) -> SnoozDeviceState:
+        if self._client is None:
+            raise Exception("Called async_read_state with no client")
+
         data = await self._client.read_gatt_char(READ_STATE_UUID, use_cached=use_cached)
         return state_from_char_data(data)
 
     async def async_listen_for_state_changes(self) -> None:
+        if self._client is None:
+            raise Exception("Called async_listen_for_state_changes with no client")
+
         if not self._client.is_connected:
             return
 
@@ -101,11 +111,14 @@ class SnoozDeviceApi:
         )
 
     async def _async_write_command(self, command: CommandId, data: bytes) -> None:
+        if self._client is None:
+            raise Exception("Called _async_write_command with no client")
+
         attempts = 0
         payload = bytes([command]) + data
 
         async with self._write_lock:
-            last_ex: BleakDBusError = None
+            last_ex: BleakDBusError | None = None
 
             while self._client.is_connected and attempts <= RETRY_WRITE_FAILURE_COUNT:
                 try:

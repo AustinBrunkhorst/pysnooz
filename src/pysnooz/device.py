@@ -5,6 +5,7 @@ import logging
 from asyncio import AbstractEventLoop, CancelledError, Event, Lock, Task
 from datetime import datetime
 from enum import Enum
+from typing import Any, Callable
 
 from bleak.backends.device import BLEDevice
 from bleak_retry_connector import (
@@ -97,6 +98,7 @@ class SnoozDevice:
         self._connection_task: Task[None] | None = None
         self._reconnection_task: Task[None] | None = None
         self._current_command: SnoozCommandProcessor | None = None
+        self._is_manually_disconnecting: bool = False
 
         not_disconnected = [
             SnoozConnectionStatus.CONNECTING,
@@ -161,22 +163,49 @@ class SnoozDevice:
     def is_connected(self) -> bool:
         return self.connection_status == SnoozConnectionStatus.CONNECTED
 
+    def subscribe_to_state_change(
+        self, callback: Callable[[], None]
+    ) -> Callable[[], None]:
+        """
+        Subscribe to device state and connection status change.
+        Returns a callback to unsubscribe.
+        """
+
+        def wrapped_callback(*_: Any) -> None:
+            callback()
+
+        self.events.on_state_change += wrapped_callback
+        self.events.on_connection_status_change += wrapped_callback
+
+        def unsubscribe() -> None:
+            self.events.on_state_change -= wrapped_callback
+            self.events.on_connection_status_change -= wrapped_callback
+
+        return unsubscribe
+
     async def async_disconnect(self) -> None:
         if self.connection_status == SnoozConnectionStatus.DISCONNECTED:
             return
 
-        self._cancel_current_command()
+        self._is_manually_disconnecting = True
+        try:
+            self._cancel_current_command()
 
-        if self._reconnection_task is not None and not self._reconnection_task.done():
-            self._reconnection_task.cancel()
+            if (
+                self._reconnection_task is not None
+                and not self._reconnection_task.done()
+            ):
+                self._reconnection_task.cancel()
 
-        if self._connection_task is not None and not self._connection_task.done():
-            self._connection_task.cancel()
+            if self._connection_task is not None and not self._connection_task.done():
+                self._connection_task.cancel()
 
-        if self._api is not None:
-            await self._api.async_disconnect()
+            if self._api is not None:
+                await self._api.async_disconnect()
 
-        self._machine.device_disconnected(reason=DisconnectionReason.USER)
+            self._machine.device_disconnected(reason=DisconnectionReason.USER)
+        finally:
+            self._is_manually_disconnecting = False
 
     async def async_execute_command(self, data: SnoozCommandData) -> SnoozCommandResult:
         self._cancel_current_command()
@@ -270,13 +299,21 @@ class SnoozDevice:
             self._machine.connection_ready()
 
     async def _async_create_api(self) -> SnoozDeviceApi:
+        api = SnoozDeviceApi(format_log_message=self._)
+
+        def _on_disconnect(_: BleakClient) -> None:
+            # don't trigger a device disconnection event when a user
+            # manually requests a disconnect
+            if not self._is_manually_disconnecting:
+                api.events.on_disconnect()
+
         client = await establish_connection(
-            BleakClient,
-            self._device,
-            self.display_name,
+            BleakClient, self._device, self.display_name, _on_disconnect
         )
 
-        return SnoozDeviceApi(client)
+        api.set_client(client)
+
+        return api
 
     async def _async_reconnect(self) -> None:
         await asyncio.sleep(RECONNECTION_DELAY_SECONDS)

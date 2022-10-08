@@ -1,4 +1,5 @@
 # mypy: warn_unreachable=False
+from typing import Generator
 from unittest.mock import DEFAULT, call
 
 import pytest
@@ -16,6 +17,16 @@ from pysnooz.testing import MockSnoozClient
 
 DBUS_ERROR = BleakDBusError("org.bluez.Error", [])
 DBUS_ERROR_IN_PROGRESS = BleakDBusError("org.bluez.Error.InProgress", [])
+
+
+@pytest.fixture()
+def mock_client() -> Generator[MockSnoozClient, None, None]:
+    yield MockSnoozClient(BLEDevice("Snooz-ABCD", "00:00:00:00:12:34"))
+
+
+@pytest.fixture()
+def mock_api(mock_client: MockSnoozClient) -> Generator[SnoozDeviceApi, None, None]:
+    yield SnoozDeviceApi(mock_client)
 
 
 def test_state_operators() -> None:
@@ -42,18 +53,18 @@ def test_repr() -> None:
     )
 
 
-def test_properties() -> None:
-    mock_client = MockSnoozClient(BLEDevice("Snooz-ABCD", "00:00:00:00:12:34"))
-    api = SnoozDeviceApi(mock_client)
-    assert api.is_connected is True
-    mock_client.trigger_disconnect()
-    assert api.is_connected is False
+@pytest.mark.asyncio
+async def test_properties(mock_api: SnoozDeviceApi) -> None:
+    assert mock_api.is_connected is True
+    await mock_api.async_disconnect()
+    assert mock_api.is_connected is False
 
 
 @pytest.mark.asyncio
-async def test_retries_write_errors(mocker: MockerFixture) -> None:
+async def test_retries_write_errors(
+    mocker: MockerFixture, mock_client: MockSnoozClient
+) -> None:
     mock_sleep = mocker.patch("asyncio.sleep")
-    mock_client = MockSnoozClient(BLEDevice("Snooz-ABCD", "00:00:00:00:12:34"))
     mock_write_gatt_char = mocker.patch.object(mock_client, "write_gatt_char")
     mock_write_gatt_char.side_effect = [
         DBUS_ERROR,
@@ -70,10 +81,9 @@ async def test_retries_write_errors(mocker: MockerFixture) -> None:
 
 @pytest.mark.asyncio
 async def test_raises_write_errors_after_retries_exhausted(
-    mocker: MockerFixture,
+    mocker: MockerFixture, mock_client: MockSnoozClient
 ) -> None:
     mock_sleep = mocker.patch("asyncio.sleep")
-    mock_client = MockSnoozClient(BLEDevice("Snooz-ABCD", "00:00:00:00:12:34"))
     mock_write_gatt_char = mocker.patch.object(mock_client, "write_gatt_char")
     mock_write_gatt_char.side_effect = DBUS_ERROR
     api = SnoozDeviceApi(mock_client)
@@ -85,9 +95,8 @@ async def test_raises_write_errors_after_retries_exhausted(
 
 @pytest.mark.asyncio
 async def test_raises_unknown_write_errors(
-    mocker: MockerFixture,
+    mocker: MockerFixture, mock_client: MockSnoozClient
 ) -> None:
-    mock_client = MockSnoozClient(BLEDevice("Snooz-ABCD", "00:00:00:00:12:34"))
     mock_write_gatt_char = mocker.patch.object(mock_client, "write_gatt_char")
     mock_write_gatt_char.side_effect = Exception("Test error")
     api = SnoozDeviceApi(mock_client)

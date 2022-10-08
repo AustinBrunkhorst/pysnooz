@@ -1,22 +1,32 @@
 from __future__ import annotations
 
-import uuid
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
+from uuid import UUID
 
+from bleak import BleakClient, BLEDevice
 from bleak.backends.characteristic import BleakGATTCharacteristic
-from bleak.backends.client import BaseBleakClient
 from bleak.backends.service import BleakGATTServiceCollection
 
 from pysnooz.api import READ_STATE_UUID, WRITE_STATE_UUID, CommandId, SnoozDeviceState
 
 
-class MockSnoozClient(BaseBleakClient):
-    _is_connected = True
-    _state = SnoozDeviceState(on=False, volume=10)
-    _has_set_token = False
-    _notify_callback: Callable[[int, bytearray], None] | None = None
+class MockSnoozClient(BleakClient):
+    def __init__(
+        self,
+        address_or_ble_device: BLEDevice | str,
+        disconnected_callback: Callable[[BleakClient], None] | None = None,
+        **kwargs: Any,
+    ):
+        self._is_connected = True
+        self._state = SnoozDeviceState(on=False, volume=10)
+        self._disconnected_callback = disconnected_callback
 
-    async def connect(self) -> bool:
+        self._has_set_token = False
+        self._notify_callback: Callable[
+            [BleakGATTCharacteristic, bytearray], None | Awaitable[None]
+        ] | None = None
+
+    async def connect(self, **kwargs: Any) -> bool:
         self._is_connected = True
         return True
 
@@ -60,12 +70,12 @@ class MockSnoozClient(BaseBleakClient):
     def is_connected(self) -> bool:
         return self._is_connected
 
-    async def get_services(self) -> BleakGATTServiceCollection:
+    async def get_services(self, **kwargs: Any) -> BleakGATTServiceCollection:
         raise NotImplementedError()
 
     async def read_gatt_char(
         self,
-        char_specifier: BleakGATTCharacteristic | int | str | uuid.UUID,
+        char_specifier: BleakGATTCharacteristic | int | str | UUID,
         **kwargs: Any,
     ) -> bytearray:
         if char_specifier != READ_STATE_UUID:
@@ -73,12 +83,12 @@ class MockSnoozClient(BaseBleakClient):
 
         return self._get_state_char_data()
 
-    async def read_gatt_descriptor(self, handle: int) -> bytearray:
+    async def read_gatt_descriptor(self, handle: int, **kwargs: Any) -> bytearray:
         raise NotImplementedError()
 
     async def write_gatt_char(
         self,
-        char_specifier: BleakGATTCharacteristic | int | str | uuid.UUID,
+        char_specifier: BleakGATTCharacteristic | int | str | UUID,
         data: bytes | bytearray | memoryview,
         response: bool = False,
     ) -> None:
@@ -107,16 +117,19 @@ class MockSnoozClient(BaseBleakClient):
 
     async def start_notify(
         self,
-        char_specifier: BleakGATTCharacteristic | int | str | uuid.UUID,
-        callback: Callable[[int, bytearray], None],
+        char_specifier: BleakGATTCharacteristic | int | str | UUID,
+        callback: Callable[
+            [BleakGATTCharacteristic, bytearray], None | Awaitable[None]
+        ],
+        **kwargs: Any,
     ) -> None:
         if char_specifier != READ_STATE_UUID:
-            raise Exception(f"Unexpected char specifier: {char_specifier}")
+            raise Exception(f"Unexpected char uuid: {char_specifier}")
 
         self._notify_callback = callback
 
     async def stop_notify(
-        self, char_specifier: BleakGATTCharacteristic | int | str | uuid.UUID
+        self, char_specifier: BleakGATTCharacteristic | int | str | UUID
     ) -> None:
         if char_specifier != READ_STATE_UUID:
             raise Exception(f"Unexpected char specifier: {char_specifier}")
@@ -127,7 +140,8 @@ class MockSnoozClient(BaseBleakClient):
         if self._notify_callback is None:
             return
 
-        self._notify_callback(0, self._get_state_char_data())
+        # pass None since it's unused by SnoozDeviceApi
+        self._notify_callback(None, self._get_state_char_data())
 
     def _get_state_char_data(self) -> bytearray:
         return char_data_from_state(self._state)

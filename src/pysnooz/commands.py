@@ -359,6 +359,10 @@ class TransitionedCommand(SnoozCommandProcessor):
         end_volume: int,
         duration: timedelta,
     ) -> None:
+        # if the device is already at the target volume, avoid the transition
+        if start_volume == end_volume:
+            return
+
         action = "resume" if self.is_resuming else "start"
         _LOGGER.debug(
             self._(
