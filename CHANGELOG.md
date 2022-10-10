@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.8.1 (2022-10-08)
+### Fix
+* Add mock device ([`7c62a1b`](https://github.com/AustinBrunkhorst/pysnooz/commit/7c62a1b092b66b182bed0414dd4c7f5a354aaec2))
+
 ## v0.8.0 (2022-10-08)
 ### Feature
 * Make loop optional on device ([`09ea58d`](https://github.com/AustinBrunkhorst/pysnooz/commit/09ea58d8b6bfc1e52a86880dc8bfd02ef3828d71))
