@@ -126,7 +126,9 @@ class SnoozDeviceApi:
                     if attempts > 0 and last_ex is not None:
                         message += f" (attempt {attempts+1}, last error: {last_ex})"
                     _LOGGER.debug(self._(message))
-                    await self._client.write_gatt_char(WRITE_STATE_UUID, payload)
+                    await self._client.write_gatt_char(
+                        WRITE_STATE_UUID, payload, response=True
+                    )
                     return
                 except BleakDBusError as ex:
                     last_ex = ex
