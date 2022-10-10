@@ -2,6 +2,11 @@
 
 <!--next-version-placeholder-->
 
+## v0.8.2 (2022-10-10)
+### Fix
+* Update write_gatt_char for CoreBluetooth backend ([`c1bafc3`](https://github.com/AustinBrunkhorst/pysnooz/commit/c1bafc3c35a1cc445f2078c4d3a00451243e5f25))
+* CoreBluetooth backend notifications ([`d476816`](https://github.com/AustinBrunkhorst/pysnooz/commit/d4768164e739393a580296e298f2da8a20b4392b))
+
 ## v0.8.1 (2022-10-08)
 ### Fix
 * Add mock device ([`7c62a1b`](https://github.com/AustinBrunkhorst/pysnooz/commit/7c62a1b092b66b182bed0414dd4c7f5a354aaec2))
