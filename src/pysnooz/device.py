@@ -10,7 +10,7 @@ from typing import Any, Callable
 from bleak.backends.device import BLEDevice
 from bleak_retry_connector import (
     BleakAbortedError,
-    BleakClientWithServiceCache,
+    BleakClient,
     BleakConnectionError,
     BleakNotFoundError,
     establish_connection,
@@ -303,18 +303,14 @@ class SnoozDevice:
     async def _async_create_api(self) -> SnoozDeviceApi:
         api = SnoozDeviceApi(format_log_message=self._)
 
-        def _on_disconnect(_: BleakClientWithServiceCache) -> None:
+        def _on_disconnect(_: BleakClient) -> None:
             # don't trigger a device disconnection event when a user
             # manually requests a disconnect
             if not self._is_manually_disconnecting:
                 api.events.on_disconnect()
 
         client = await establish_connection(
-            BleakClientWithServiceCache,
-            self._device,
-            self.display_name,
-            _on_disconnect,
-            use_services_cache=True,
+            BleakClient, self._device, self.display_name, _on_disconnect
         )
 
         api.set_client(client)
