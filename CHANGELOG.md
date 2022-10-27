@@ -2,6 +2,11 @@
 
 <!--next-version-placeholder-->
 
+## v0.8.3 (2022-10-27)
+### Fix
+* Use BleakClientWithServiceCache ([`fdd9b32`](https://github.com/AustinBrunkhorst/pysnooz/commit/fdd9b32836ff5320e0bda1f1c7bf60c667bf3145))
+* Use BleakClientWithServiceCache ([`e828fe8`](https://github.com/AustinBrunkhorst/pysnooz/commit/e828fe8f72df898ea6c8d1a45180568f0333b14b))
+
 ## v0.8.2 (2022-10-10)
 ### Fix
 * Update write_gatt_char for CoreBluetooth backend ([`c1bafc3`](https://github.com/AustinBrunkhorst/pysnooz/commit/c1bafc3c35a1cc445f2078c4d3a00451243e5f25))
