@@ -417,7 +417,10 @@ class SnoozDevice:
         disconnect_reason: DisconnectionReason = e.kwargs.get("reason")
 
         # if the disconnection was initiated from the user, don't attempt to reconnect
-        if disconnect_reason == DisconnectionReason.USER:
+        if (
+            disconnect_reason == DisconnectionReason.USER
+            or self._is_manually_disconnecting
+        ):
             return
 
         if self._connection_attempts >= MAX_RECONNECTION_ATTEMPTS:
