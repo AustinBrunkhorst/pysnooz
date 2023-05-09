@@ -94,7 +94,7 @@ class SnoozTestFixture:
 
 @pytest.fixture(scope="function")
 def snooz(mocker: MockerFixture, event_loop: AbstractEventLoop) -> SnoozTestFixture:
-    device = BLEDevice("AA:BB:CC:DD:EE:FF", "Snooz-EEFF")
+    device = BLEDevice("AA:BB:CC:DD:EE:FF", "Snooz-EEFF", [], 0)
     token = "AABBCCDDEEFF"
 
     def get_connected_client(

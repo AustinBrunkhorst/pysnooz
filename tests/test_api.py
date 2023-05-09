@@ -21,7 +21,7 @@ DBUS_ERROR_IN_PROGRESS = BleakDBusError("org.bluez.Error.InProgress", [])
 
 @pytest.fixture()
 def mock_client() -> Generator[MockSnoozClient, None, None]:
-    yield MockSnoozClient(BLEDevice("Snooz-ABCD", "00:00:00:00:12:34"))
+    yield MockSnoozClient(BLEDevice("Snooz-ABCD", "00:00:00:00:12:34", [], 0))
 
 
 @pytest.fixture()
