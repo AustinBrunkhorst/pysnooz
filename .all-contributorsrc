@@ -18,6 +18,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "mweinelt",
+      "name": "Martin Weinelt",
+      "avatar_url": "https://avatars.githubusercontent.com/u/131599?v=4",
+      "profile": "https://github.com/mweinelt",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
