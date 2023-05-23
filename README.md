@@ -6,7 +6,7 @@
 
 <p>
   <a href="https://github.com/AustinBrunkhorst/pysnooz/actions?query=workflow%3ACI">
-    <img src="https://img.shields.io/github/workflow/status/AustinBrunkhorst/pysnooz/CI/main?label=build&logo=github&style=flat&colorA=000000&colorB=000000" alt="CI Status" >
+    <img src="https://img.shields.io/github/actions/workflow/status/AustinBrunkhorst/pysnooz/ci.yml?branch=main&label=build&logo=github&style=flat&colorA=000000&colorB=000000" alt="CI Status" >
   </a>
   <a href="https://codecov.io/gh/AustinBrunkhorst/pysnooz">
     <img src="https://img.shields.io/codecov/c/github/AustinBrunkhorst/pysnooz.svg?logo=codecov&logoColor=fff&style=flat&colorA=000000&colorB=000000" alt="Test coverage percentage">
