@@ -63,9 +63,12 @@ Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/d
 <!-- prettier-ignore-start -->
 <!-- markdownlint-disable -->
 <table>
-  <tr>
-    <td align="center"><a href="https://github.com/bradleysryder"><img src="https://avatars.githubusercontent.com/u/39577543?v=4?s=80" width="80px;" alt=""/><br /><sub><b>bradleysryder</b></sub></a><br /><a href="https://github.com/AustinBrunkhorst/pysnooz/commits?author=bradleysryder" title="Code">💻</a></td>
-  </tr>
+  <tbody>
+    <tr>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/bradleysryder"><img src="https://avatars.githubusercontent.com/u/39577543?v=4?s=80" width="80px;" alt="bradleysryder"/><br /><sub><b>bradleysryder</b></sub></a><br /><a href="https://github.com/AustinBrunkhorst/pysnooz/commits?author=bradleysryder" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/mweinelt"><img src="https://avatars.githubusercontent.com/u/131599?v=4?s=80" width="80px;" alt="Martin Weinelt"/><br /><sub><b>Martin Weinelt</b></sub></a><br /><a href="https://github.com/AustinBrunkhorst/pysnooz/commits?author=mweinelt" title="Code">💻</a></td>
+    </tr>
+  </tbody>
 </table>
 
 <!-- markdownlint-restore -->
