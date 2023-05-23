@@ -285,7 +285,7 @@ class SnoozDevice:
             )
             self._before_device_connected()
             self._api = api
-        except (DEVICE_UNAVAILABLE_EXCEPTIONS) as ex:
+        except DEVICE_UNAVAILABLE_EXCEPTIONS as ex:
             raise SnoozDeviceUnavailableError() from ex
 
         # ensure each call with side effects checks the connection status
