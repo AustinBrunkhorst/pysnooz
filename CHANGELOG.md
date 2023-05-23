@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.8.4 (2023-05-23)
+### Fix
+* Repair test compatibility with bleak>=0.20.0 ([#9](https://github.com/AustinBrunkhorst/pysnooz/issues/9)) ([`f789d92`](https://github.com/AustinBrunkhorst/pysnooz/commit/f789d9253640a43ca7c8f2f9b8530d017667178c))
+
 ## v0.8.3 (2022-10-27)
 ### Fix
 * Use BleakClientWithServiceCache ([`fdd9b32`](https://github.com/AustinBrunkhorst/pysnooz/commit/fdd9b32836ff5320e0bda1f1c7bf60c667bf3145))
