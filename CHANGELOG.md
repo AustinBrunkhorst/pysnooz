@@ -2,6 +2,13 @@
 
 <!--next-version-placeholder-->
 
+## v0.8.5 (2023-05-24)
+### Fix
+* Race condition during disconnect ([#7](https://github.com/AustinBrunkhorst/pysnooz/issues/7)) ([`d1ac03f`](https://github.com/AustinBrunkhorst/pysnooz/commit/d1ac03fa16a5d17a9b9a7252d6e6baaadc5a7768))
+
+### Documentation
+* Add mweinelt as a contributor for code ([#12](https://github.com/AustinBrunkhorst/pysnooz/issues/12)) ([`5b291df`](https://github.com/AustinBrunkhorst/pysnooz/commit/5b291df26551d5da7137351ab0d3ddae4cf71be8))
+
 ## v0.8.4 (2023-05-23)
 ### Fix
 * Repair test compatibility with bleak>=0.20.0 ([#9](https://github.com/AustinBrunkhorst/pysnooz/issues/9)) ([`f789d92`](https://github.com/AustinBrunkhorst/pysnooz/commit/f789d9253640a43ca7c8f2f9b8530d017667178c))
