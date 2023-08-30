@@ -61,7 +61,7 @@ class SnoozDeviceApi:
         client: BleakClient | None = None,
         format_log_message: Callable[[str], str] | None = None,
     ) -> None:
-        self.events = Events(("on_disconnect", "on_state_change"))
+        self.unsubscribe_all_events()
         self._client = client
         self._write_lock = Lock()
         self._ = format_log_message or (lambda msg: msg)
@@ -72,6 +72,9 @@ class SnoozDeviceApi:
 
     def set_client(self, client: BleakClient) -> None:
         self._client = client
+
+    def unsubscribe_all_events(self) -> None:
+        self.events = Events(("on_disconnect", "on_state_change"))
 
     async def async_disconnect(self) -> None:
         if self._client is None:

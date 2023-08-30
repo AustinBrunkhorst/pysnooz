@@ -404,6 +404,8 @@ class SnoozDevice:
         )
 
     def _on_device_disconnected(self, e: EventData) -> None:
+        if self._api is not None:
+            self._api.unsubscribe_all_events()
         self._api = None
 
         last_event = self._connection_ready_time or self._connection_start_time

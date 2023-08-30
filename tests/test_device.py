@@ -444,6 +444,31 @@ async def test_disconnect_before_ready(
 
 
 @pytest.mark.asyncio
+async def test_device_disconnect_callback_after_disconnected(
+    snooz: SnoozTestFixture
+) -> None:
+    device = snooz.create_device()
+
+    await snooz.assert_command_success(device, turn_on(volume=26))
+
+    original_api = device._api
+
+    await device.async_disconnect()
+    await asyncio.sleep(0.1)
+
+    # should be a noop
+    original_api.events.on_disconnect()
+
+    await snooz.assert_command_success(device, turn_on(volume=27))
+
+    # should be a noop
+    original_api.events.on_disconnect()
+
+    assert device.is_connected
+    assert device.state.volume == 27
+
+
+@pytest.mark.asyncio
 async def test_unexpected_error_before_ready(
     mocker: MockerFixture, snooz: SnoozTestFixture
 ) -> None:
