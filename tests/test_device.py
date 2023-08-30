@@ -445,7 +445,7 @@ async def test_disconnect_before_ready(
 
 @pytest.mark.asyncio
 async def test_device_disconnect_callback_after_disconnected(
-    snooz: SnoozTestFixture
+    snooz: SnoozTestFixture,
 ) -> None:
     device = snooz.create_device()
 
@@ -457,12 +457,12 @@ async def test_device_disconnect_callback_after_disconnected(
     await asyncio.sleep(0.1)
 
     # should be a noop
-    original_api.events.on_disconnect()
+    original_api.events.on_disconnect()  # type: ignore
 
     await snooz.assert_command_success(device, turn_on(volume=27))
 
     # should be a noop
-    original_api.events.on_disconnect()
+    original_api.events.on_disconnect()  # type: ignore
 
     assert device.is_connected
     assert device.state.volume == 27
