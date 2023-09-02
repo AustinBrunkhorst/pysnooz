@@ -9,15 +9,13 @@ from bleak import BleakClient, BLEDevice
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.service import BleakGATTServiceCollection
 
+from pysnooz import SnoozDevice, SnoozDeviceState, UnknownSnoozState
 from pysnooz.api import (
-    READ_STATE_UUID,
-    WRITE_STATE_UUID,
+    READ_STATE_CHARACTERISTIC,
+    WRITE_STATE_CHARACTERISTIC,
     CommandId,
     SnoozDeviceApi,
-    SnoozDeviceState,
-    UnknownSnoozState,
 )
-from pysnooz.device import SnoozDevice
 
 
 class MockSnoozDevice(SnoozDevice):
@@ -126,7 +124,7 @@ class MockSnoozClient(BleakClient):
         char_specifier: BleakGATTCharacteristic | int | str | UUID,
         **kwargs: Any,
     ) -> bytearray:
-        if char_specifier != READ_STATE_UUID:
+        if char_specifier != READ_STATE_CHARACTERISTIC:
             raise Exception(f"Unexpected char specifier: {char_specifier}")
 
         return self._get_state_char_data()
@@ -140,7 +138,7 @@ class MockSnoozClient(BleakClient):
         data: bytes | bytearray | memoryview,
         response: bool = False,
     ) -> None:
-        if char_specifier != WRITE_STATE_UUID:
+        if char_specifier != WRITE_STATE_CHARACTERISTIC:
             raise Exception(f"Unexpected char specifier: {char_specifier}")
 
         command_id = data[0]
@@ -171,7 +169,7 @@ class MockSnoozClient(BleakClient):
         ],
         **kwargs: Any,
     ) -> None:
-        if char_specifier != READ_STATE_UUID:
+        if char_specifier != READ_STATE_CHARACTERISTIC:
             raise Exception(f"Unexpected char uuid: {char_specifier}")
 
         self._notify_callback = callback
@@ -179,7 +177,7 @@ class MockSnoozClient(BleakClient):
     async def stop_notify(
         self, char_specifier: BleakGATTCharacteristic | int | str | UUID
     ) -> None:
-        if char_specifier != READ_STATE_UUID:
+        if char_specifier != READ_STATE_CHARACTERISTIC:
             raise Exception(f"Unexpected char specifier: {char_specifier}")
 
         self._notify_callback = None

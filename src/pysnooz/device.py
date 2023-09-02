@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 from asyncio import AbstractEventLoop, CancelledError, Event, Lock, Task
 from datetime import datetime
@@ -18,16 +19,22 @@ from bleak_retry_connector import (
 from events import Events
 from transitions import EventData, Machine, State
 
-from pysnooz.advertisement import get_snooz_display_name
-from pysnooz.api import SnoozDeviceApi, SnoozDeviceState, UnknownSnoozState
+from pysnooz.advertisement import get_device_display_name
+from pysnooz.api import SnoozCommand, SnoozDeviceApi
 from pysnooz.commands import (
     CommandProcessorState,
     SnoozCommandData,
     SnoozCommandProcessor,
     SnoozCommandResult,
     create_command_processor,
+    get_device_info,
 )
-from pysnooz.const import UNEXPECTED_ERROR_LOG_MESSAGE
+from pysnooz.const import (
+    UNEXPECTED_ERROR_LOG_MESSAGE,
+    SnoozDeviceInfo,
+    SnoozDeviceState,
+    UnknownSnoozState,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -71,7 +78,6 @@ class SnoozDevice:
     def __init__(
         self, device: BLEDevice, token: str, loop: AbstractEventLoop | None = None
     ) -> None:
-        self.state: SnoozDeviceState = UnknownSnoozState
         self.events = Events(
             (
                 # received state from bluetooth characteristic
@@ -95,6 +101,7 @@ class SnoozDevice:
         self._connection_start_time: datetime | None = None
         self._connection_ready_time: datetime | None = None
         self._api: SnoozDeviceApi | None = None
+        self._info: SnoozDeviceInfo | None = None
         self._connect_lock = Lock()
         self._command_lock = Lock()
         self._connection_task: Task[None] | None = None
@@ -165,6 +172,10 @@ class SnoozDevice:
     def is_connected(self) -> bool:
         return self.connection_status == SnoozConnectionStatus.CONNECTED
 
+    @property
+    def state(self) -> SnoozDeviceState:
+        return self._api.state if self._api is not None else UnknownSnoozState
+
     def subscribe_to_state_change(
         self, callback: Callable[[], None]
     ) -> Callable[[], None]:
@@ -208,6 +219,15 @@ class SnoozDevice:
             self._machine.device_disconnected(reason=DisconnectionReason.USER)
         finally:
             self._is_manually_disconnecting = False
+
+    async def async_get_info(self) -> SnoozDeviceInfo | None:
+        if self._info is not None:
+            return self._info
+
+        result = await self.async_execute_command(get_device_info())
+
+        self._info = result.response
+        return self._info
 
     async def async_execute_command(self, data: SnoozCommandData) -> SnoozCommandResult:
         self._cancel_current_command()
@@ -280,7 +300,7 @@ class SnoozDevice:
             api.events.on_disconnect += lambda: self._machine.device_disconnected(
                 reason=DisconnectionReason.DEVICE
             )
-            api.events.on_state_change += lambda state: self._on_receive_device_state(
+            api.events.on_state_change += lambda state: self._on_state_change(
                 state
             )
             self._before_device_connected()
@@ -295,7 +315,7 @@ class SnoozDevice:
             await api.async_authenticate_connection(bytes.fromhex(self._token))
 
         if self.connection_status == SnoozConnectionStatus.CONNECTING:
-            await api.async_listen_for_state_changes()
+            await api.async_subscribe_to_notifications()
 
         if self.connection_status == SnoozConnectionStatus.CONNECTING:
             self._machine.connection_ready()
@@ -381,13 +401,8 @@ class SnoozDevice:
         self._last_dispatched_connection_status = new_status
         self.events.on_connection_status_change(new_status)
 
-    def _on_receive_device_state(self, new_state: SnoozDeviceState) -> None:
-        was_changed = self.state is UnknownSnoozState or new_state != self.state
-
-        self.state = new_state
-
-        if was_changed:
-            self.events.on_state_change(self.state)
+    def _on_state_change(self, state: SnoozDeviceState) -> None:
+        self.events.on_state_change(state)
 
     def _after_device_disconnected(self, e: EventData) -> None:
         reason: DisconnectionReason = e.kwargs.get("reason")
@@ -472,7 +487,7 @@ class SnoozDevice:
 
     @property
     def display_name(self) -> str:
-        return get_snooz_display_name(self.name, self.address)
+        return get_device_display_name(self.name, self.address)
 
     def __repr__(self) -> str:
         description = []

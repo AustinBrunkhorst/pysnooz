@@ -3,29 +3,44 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from asyncio import AbstractEventLoop, CancelledError, Future, Lock, Task
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from enum import Enum
+from enum import Enum, IntEnum
 from typing import Callable
 
-from transitions import Machine, State
+from transitions import EventData, Machine, State
 
-from pysnooz.api import MIN_DEVICE_VOLUME, SnoozDeviceApi, SnoozDeviceState
-from pysnooz.const import UNEXPECTED_ERROR_LOG_MESSAGE
+from pysnooz.api import MIN_DEVICE_VOLUME, SnoozDeviceApi
+from pysnooz.const import (
+    UNEXPECTED_ERROR_LOG_MESSAGE,
+    SnoozDeviceInfo,
+    SnoozDeviceState,
+)
 from pysnooz.transition import Transition
 
 _LOGGER = logging.getLogger(__name__)
 
 
+class SnoozDeviceAction(IntEnum):
+    GET_DEVICE_INFO = (0,)
+    ENABLE_AUTO_TEMP = 1
+
+
+@dataclass
 class SnoozCommandData:
-    def __init__(
-        self,
-        on: bool | None = None,
-        volume: int | None = None,
-        duration: timedelta | None = None,
-    ) -> None:
-        self.on = on
-        self.volume = volume
-        self.duration = duration
+    # Noise sound properties
+    on: bool | None = None
+    volume: int | None = None
+
+    # duration to transition target values
+    duration: timedelta | None = None
+
+    # Breez only properties
+    fan_on: bool | None = None
+    fan_speed: int | None = None
+    temp_target: int | None = None
+
+    action: SnoozDeviceAction | None = None
 
     def __repr__(self) -> str:
         operations: list[str] = []
@@ -33,11 +48,26 @@ class SnoozCommandData:
         if self.on is not None:
             operations += ["TurnOn"] if self.on else ["TurnOff"]
 
+        if self.fan_on is not None:
+            operations += ["TurnOnFan"] if self.fan_on else ["TurnOffFan"]
+
         if self.volume is not None:
             operations += [f"SetVolume({self.volume}%)"]
 
+        if self.fan_speed is not None:
+            operations += [f"SetFanSpeed({self.fan_speed}%)"]
+
+        if self.temp_target is not None:
+            operations += [f"SetTargetTemperature({self.temp_target})"]
+
         if self.duration is not None:
             operations += [f"transition {self.duration}"]
+
+        if self.action is SnoozDeviceAction.GET_DEVICE_INFO:
+            operations += ["GetDeviceInfo"]
+
+        if self.action is SnoozDeviceAction.ENABLE_AUTO_TEMP:
+            operations += ["EnableAutoTemp"]
 
         return ", ".join(operations)
 
@@ -56,6 +86,35 @@ def set_volume(volume: int) -> SnoozCommandData:
     return SnoozCommandData(volume=volume)
 
 
+def get_device_info() -> SnoozCommandData:
+    return SnoozCommandData(action=SnoozDeviceAction.GET_DEVICE_INFO)
+
+
+# Breez only commands
+
+
+def turn_fan_on(
+    speed: int | None = None, duration: timedelta | None = None
+) -> SnoozCommandData:
+    return SnoozCommandData(fan_on=True, fan_speed=speed, duration=duration)
+
+
+def turn_fan_off(duration: timedelta | None = None) -> SnoozCommandData:
+    return SnoozCommandData(fan_on=False, duration=duration)
+
+
+def set_fan_speed(speed: int) -> SnoozCommandData:
+    return SnoozCommandData(fan_speed=speed)
+
+
+def enable_auto_temp() -> SnoozCommandData:
+    return SnoozCommandData(action=SnoozDeviceAction.ENABLE_AUTO_TEMP)
+
+
+def set_temp_target(temp: int) -> SnoozCommandData:
+    return SnoozCommandData(temp_target=temp)
+
+
 class SnoozCommandResultStatus(Enum):
     SUCCESSFUL = 0
     CANCELLED = 1
@@ -63,10 +122,11 @@ class SnoozCommandResultStatus(Enum):
     UNEXPECTED_ERROR = 3
 
 
+@dataclass
 class SnoozCommandResult:
-    def __init__(self, status: SnoozCommandResultStatus, duration: timedelta) -> None:
-        self.status = status
-        self.duration = duration
+    status: SnoozCommandResultStatus
+    duration: timedelta
+    response: SnoozDeviceInfo | None = None
 
 
 class CommandProcessorState(Enum):
@@ -168,13 +228,13 @@ class SnoozCommandProcessor(ABC):
 
             self._machine.start_execution()
 
-            await self._async_execute(api)
+            response = await self._async_execute(api)
 
             # happens when a command is cancelled during execution
             if self.state != CommandProcessorState.EXECUTING:
                 return
 
-            self._machine.execution_complete()
+            self._machine.execution_complete(response=response)
         except Exception:
             _LOGGER.exception(
                 self._(
@@ -184,11 +244,11 @@ class SnoozCommandProcessor(ABC):
             )
             self.on_unhandled_exception()
 
-    def _before_execution_start(self) -> None:
+    def _before_execution_start(self, **kwargs) -> None:
         _LOGGER.debug(self._(f"Executing {self.command}"))
 
     @abstractmethod
-    async def _async_execute(self, api: SnoozDeviceApi) -> None:
+    async def _async_execute(self, api: SnoozDeviceApi) -> SnoozDeviceInfo | None:
         pass
 
     def cancel(self) -> None:
@@ -218,20 +278,25 @@ class SnoozCommandProcessor(ABC):
         self._result_status = status
         self._cancel_active_tasks()
 
-    def _on_disconnect(self) -> None:
+    def _on_disconnect(self, **kwargs) -> None:
         self.last_disconnect_time = datetime.now()
         self._total_disconnects += 1
         self._cancel_active_tasks()
 
-    def _on_complete(self) -> None:
+    def _on_complete(self, **kwargs) -> None:
         duration = datetime.now() - self.start_time
 
         message = f"Completed {self.command} ({self._result_status.name}) in {duration}"
         if self._total_disconnects > 0:
-            message += f" with {self._total_disconnects} disconnects"
+            message += f" with {self._total_disconnects} disconnects."
+
+        response = kwargs.get("response", None)
+        if response is not None:
+            message += f" Response was {response}"
 
         _LOGGER.debug(self._(message))
-        self.result.set_result(SnoozCommandResult(self._result_status, duration))
+        result = SnoozCommandResult(self._result_status, duration, response)
+        self.result.set_result(result)
 
 
 def default_log_formatter(message: str) -> str:
@@ -244,8 +309,16 @@ def create_command_processor(
     data: SnoozCommandData,
     format_log_message: Callable[[str], str] | None = None,
 ) -> SnoozCommandProcessor:
-    cls = TransitionedCommand if data.duration else ImmediatelyInvokedCommand
+    cls: type[SnoozCommandProcessor] | None = None
 
+    if data.action is not None:
+        cls = DeviceActionCommand
+    elif data.duration:
+        cls = TransitionedCommand
+    else:
+        cls = WriteDeviceStateCommand
+
+    assert cls is not None
     result = loop.create_future()
 
     return cls(
@@ -253,12 +326,31 @@ def create_command_processor(
     )
 
 
-class ImmediatelyInvokedCommand(SnoozCommandProcessor):
+class DeviceActionCommand(SnoozCommandProcessor):
+    async def _async_execute(self, api: SnoozDeviceApi) -> SnoozDeviceInfo | None:
+        if self.command.action == SnoozDeviceAction.GET_DEVICE_INFO:
+            return await api.async_get_info()
+        if self.command.action == SnoozDeviceAction.ENABLE_AUTO_TEMP:
+            await api.async_set_auto_temp_enabled(True)
+
+        return None
+
+
+class WriteDeviceStateCommand(SnoozCommandProcessor):
     async def _async_execute(self, api: SnoozDeviceApi) -> None:
         if self.command.volume is not None:
-            await api.async_set_volume(self.command.volume)
+            await api.async_set_motor_speed(self.command.volume)
         if self.command.on is not None:
-            await api.async_set_power(self.command.on)
+            await api.async_set_motor_enabled(self.command.on)
+        if self.command.fan_speed is not None:
+            await api.async_set_auto_temp_enabled(False)
+            await api.async_set_fan_speed(self.command.fan_speed)
+        if self.command.fan_on is not None:
+            await api.async_set_auto_temp_enabled(False)
+            await api.async_set_fan_enabled(self.command.fan_on)
+        if self.command.temp_target is not None:
+            await api.async_set_auto_temp_enabled(True)
+            await api.async_set_auto_temp_threshold(self.command.temp_target)
 
 
 class TransitionedCommand(SnoozCommandProcessor):

@@ -7,11 +7,11 @@ from bleak.backends.client import BLEDevice
 from bleak.exc import BleakDBusError
 from pytest_mock import MockerFixture
 
+from pysnooz.const import UnknownSnoozState
 from pysnooz.api import (
     RETRY_SLEEP_DURATIONS,
     SnoozDeviceApi,
     SnoozDeviceState,
-    UnknownSnoozState,
 )
 from pysnooz.testing import MockSnoozClient
 
@@ -29,6 +29,7 @@ def mock_api(mock_client: MockSnoozClient) -> Generator[SnoozDeviceApi, None, No
     yield SnoozDeviceApi(mock_client)
 
 
+@pytest.mark.smokey
 def test_state_operators() -> None:
     assert SnoozDeviceState(on=True, volume=None) == SnoozDeviceState(
         on=True, volume=None
@@ -42,6 +43,22 @@ def test_state_operators() -> None:
     )
     assert SnoozDeviceState(on=False, volume=13) != SnoozDeviceState(
         on=False, volume=15
+    )
+
+    assert SnoozDeviceState(fan_on=True, fan_speed=None) == SnoozDeviceState(
+        fan_on=True, fan_speed=None
+    )
+    assert SnoozDeviceState(fan_on=False, fan_speed=None) == SnoozDeviceState(
+        fan_on=False, fan_speed=None
+    )
+    assert SnoozDeviceState(fan_on=True, fan_speed=10) == SnoozDeviceState(
+        fan_on=True, fan_speed=10
+    )
+    assert SnoozDeviceState(fan_on=False, fan_speed=13) == SnoozDeviceState(
+        fan_on=False, fan_speed=13
+    )
+    assert SnoozDeviceState(fan_on=False, fan_speed=13) != SnoozDeviceState(
+        fan_on=False, fan_speed=15
     )
 
 
@@ -74,7 +91,7 @@ async def test_retries_write_errors(
         DEFAULT,
     ]
     api = SnoozDeviceApi(mock_client)
-    await api.async_set_volume(30)
+    await api.async_set_motor_speed(30)
     assert mock_write_gatt_char.call_count == 5
     assert mock_sleep.mock_calls == [call(d) for d in RETRY_SLEEP_DURATIONS[0:4]]
 
@@ -88,7 +105,7 @@ async def test_raises_write_errors_after_retries_exhausted(
     mock_write_gatt_char.side_effect = DBUS_ERROR
     api = SnoozDeviceApi(mock_client)
     with pytest.raises(Exception):
-        await api.async_set_volume(30)
+        await api.async_set_motor_speed(30)
     assert mock_write_gatt_char.call_count == 6
     assert mock_sleep.mock_calls == [call(d) for d in RETRY_SLEEP_DURATIONS]
 
@@ -101,7 +118,7 @@ async def test_raises_unknown_write_errors(
     mock_write_gatt_char.side_effect = Exception("Test error")
     api = SnoozDeviceApi(mock_client)
     with pytest.raises(Exception):
-        await api.async_set_volume(30)
+        await api.async_set_motor_speed(30)
     assert mock_write_gatt_char.call_count == 1
 
 
@@ -110,7 +127,7 @@ async def test_volume_validation(mocker: MockerFixture) -> None:
     mock_client = mocker.MagicMock(autospec=MockSnoozClient)
     api = SnoozDeviceApi(mock_client)
     with pytest.raises(ValueError):
-        await api.async_set_volume(-10)
+        await api.async_set_motor_speed(-10)
     with pytest.raises(ValueError):
-        await api.async_set_volume(110)
+        await api.async_set_motor_speed(110)
     mock_client.write_gatt_char.assert_not_called()
