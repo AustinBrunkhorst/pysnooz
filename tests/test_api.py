@@ -7,11 +7,11 @@ from bleak.backends.client import BLEDevice
 from bleak.exc import BleakDBusError
 from pytest_mock import MockerFixture
 
+from pysnooz.const import UnknownSnoozState
 from pysnooz.api import (
     RETRY_SLEEP_DURATIONS,
     SnoozDeviceApi,
     SnoozDeviceState,
-    UnknownSnoozState,
 )
 from pysnooz.testing import MockSnoozClient
 
@@ -44,12 +44,32 @@ def test_state_operators() -> None:
         on=False, volume=15
     )
 
+    assert SnoozDeviceState(fan_on=True, fan_speed=None) == SnoozDeviceState(
+        fan_on=True, fan_speed=None
+    )
+    assert SnoozDeviceState(fan_on=False, fan_speed=None) == SnoozDeviceState(
+        fan_on=False, fan_speed=None
+    )
+    assert SnoozDeviceState(fan_on=True, fan_speed=10) == SnoozDeviceState(
+        fan_on=True, fan_speed=10
+    )
+    assert SnoozDeviceState(fan_on=False, fan_speed=13) == SnoozDeviceState(
+        fan_on=False, fan_speed=13
+    )
+    assert SnoozDeviceState(fan_on=False, fan_speed=13) != SnoozDeviceState(
+        fan_on=False, fan_speed=15
+    )
+
 
 def test_repr() -> None:
     assert UnknownSnoozState.__repr__() == "Snooz(Unknown)"
-    assert SnoozDeviceState(on=True, volume=10).__repr__() == "Snooz(On at 10% volume)"
     assert (
-        SnoozDeviceState(on=False, volume=15).__repr__() == "Snooz(Off at 15% volume)"
+        SnoozDeviceState(on=True, volume=10).__repr__()
+        == "Snooz(Noise On at 10% volume)"
+    )
+    assert (
+        SnoozDeviceState(on=False, volume=15).__repr__()
+        == "Snooz(Noise Off at 15% volume)"
     )
 
 

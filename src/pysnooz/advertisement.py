@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import logging
+
 from bluetooth_sensor_state_data import BluetoothData
 from home_assistant_bluetooth import BluetoothServiceInfo
 
 ADVERTISEMENT_TOKEN_LENGTH = 8
 TOKEN_EMPTY = bytes([0] * ADVERTISEMENT_TOKEN_LENGTH)
 TOKEN_SEQUENCE = bytes(range(1, ADVERTISEMENT_TOKEN_LENGTH + 1))
+KNOWN_DEVICE_NAMES = ["Snooz", "Breez"]
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class SnoozAdvertisementData(BluetoothData):
@@ -29,10 +34,6 @@ class SnoozAdvertisementData(BluetoothData):
     def _start_update(self, data: BluetoothServiceInfo) -> None:
         """Update from BLE advertisement data"""
 
-        # device local names are prefixed with Snooz
-        if not data.name.startswith("Snooz"):
-            return
-
         advertisement = data.manufacturer_data.get(data.manufacturer_id)
 
         if advertisement is None:
@@ -40,12 +41,19 @@ class SnoozAdvertisementData(BluetoothData):
 
         raw_token = advertisement[1:]
 
+        if len(raw_token) != ADVERTISEMENT_TOKEN_LENGTH:
+            _LOGGER.debug(
+                f"Skipped {data.name} because token length was unexpected"
+                f" ({len(raw_token)}): {raw_token.hex('-')}"
+            )
+            return
+
         # pairing mode is enabled if the advertisement token is
         # all zeros or a sequence from 1-8
         if raw_token not in (TOKEN_EMPTY, TOKEN_SEQUENCE):
             self.pairing_token = raw_token.hex()
 
-        name = get_snooz_display_name(data.name, data.address)
+        name = get_device_display_name(data.name, data.address)
         self.display_name = name
 
         self.set_title(name)
@@ -55,10 +63,13 @@ class SnoozAdvertisementData(BluetoothData):
         self.set_device_hw_version(advertisement[0])
 
 
-def get_snooz_display_name(local_name: str, address: str) -> str:
+def get_device_display_name(local_name: str, address: str) -> str:
     # if the advertised name doesn't have any digits, then use
     # the last 4 from the mac address
-    if local_name.lower() == "snooz":
-        return f"Snooz {address.replace(':', '')[-4:]}"
+    supported = next(
+        (x for x in KNOWN_DEVICE_NAMES if x.lower() == local_name.lower()), None
+    )
+    if supported is not None:
+        return f"{supported} {address.replace(':', '')[-4:]}"
 
     return local_name.replace("-", " ")
