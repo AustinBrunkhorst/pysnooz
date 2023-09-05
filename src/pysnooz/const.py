@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from enum import Enum, StrEnum
+from enum import Enum
 from typing import Any
 
 NEW_ISSUE_URL = (
@@ -25,7 +25,6 @@ class SnoozDeviceModel(Enum):
     ORIGINAL = 0
     PRO = 1
     BREEZ = 2
-
 
 
 @dataclass
@@ -69,7 +68,7 @@ class SnoozDeviceState(SnoozNoiseMachineState, BreezFanState):
         if self.fan_speed is not None:
             fan_attrs += [f"at {self.fan_speed}% speed"]
 
-        if self.fan_auto_enabled is not None:
+        if self.fan_auto_enabled is True:
             fan_attrs += ["[Auto]"]
 
         if len(fan_attrs) > 0:
@@ -79,7 +78,7 @@ class SnoozDeviceState(SnoozNoiseMachineState, BreezFanState):
             attributes += [f"{self.temperature}°F"]
 
         if self.target_temperature is not None:
-            attributes += [f"{self.target_temperature}°F threshold"]
+            attributes += [f"{self.target_temperature}°F target"]
 
         parts = ", ".join(attributes)
 
