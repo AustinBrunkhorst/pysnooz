@@ -7,12 +7,11 @@ import logging
 from asyncio import Event, Lock
 from enum import IntEnum
 from typing import Callable
-from attr import asdict, dataclass
+from attr import dataclass
 
 from bleak import BleakClient
 from bleak.exc import BleakDBusError
 from events import Events
-import numpy as np
 
 from .const import (
     FIRMWARE_REVISION_CHARACTERISTIC,
@@ -94,17 +93,6 @@ class ResponseCommand(IntEnum):
     TEMPERATURE = 9
 
 
-@dataclass
-class SnoozCommand:
-    command_type: np.uint8
-    value: np.uint8 = np.uint8(0)
-    timer: np.uint32 = np.uint32(0)
-    timer_hour: np.uint32 = np.uint32(0)
-    timer_minute: np.uint32 = np.uint32(0)
-    password: np.uint64 = np.uint64(0)
-    value2: np.uint8 = np.uint8(0)
-    value3: np.uint8 = np.uint8(0)
-
 class SnoozDeviceApi:
     def __init__(
         self,
@@ -166,7 +154,7 @@ class SnoozDeviceApi:
 
         if model == SnoozDeviceModel.BREEZ:
             await self._request_other_settings()
-            _LOGGER.debug(self._(f"Waiting for settings"))
+            _LOGGER.debug(self._("Waiting for settings"))
             await self._other_settings_received.wait()
 
         # result is cached in memory
@@ -184,20 +172,18 @@ class SnoozDeviceApi:
     async def async_authenticate_connection(self, token: bytes) -> None:
         await self._async_write_state(bytes([Command.PASSWORD, *token]))
 
-    async def async_set_motor_enabled(self, on: bool) -> None:
-        await self._async_write_state(
-            bytes([Command.MOTOR_ENABLED, 1 if on else 0])
-        )
+    async def async_set_power(self, on: bool) -> None:
+        await self._async_write_state(bytes([Command.MOTOR_ENABLED, 1 if on else 0]))
 
     async def async_set_fan_enabled(self, on: bool) -> None:
-        await self._async_write_state(
-            bytes([Command.FAN_ENABLED, 1 if on else 0])
-        )
+        await self._async_write_state(bytes([Command.FAN_ENABLED, 1 if on else 0]))
 
     async def async_set_auto_temp_enabled(self, on: bool) -> None:
-        await self._async_write_state(bytes([Command.AUTO_TEMP_ENABLED, 1 if on else 0]))
+        await self._async_write_state(
+            bytes([Command.AUTO_TEMP_ENABLED, 1 if on else 0])
+        )
 
-    async def async_set_motor_speed(self, volume: int) -> None:
+    async def async_set_volume(self, volume: int) -> None:
         if volume < 0 or volume > 100:
             raise ValueError(f"Volume must be between 0 and 100 - got {volume}")
 
@@ -255,8 +241,7 @@ class SnoozDeviceApi:
             on_state_update,
         )
         await self._client.start_notify(
-            READ_COMMAND_CHARACTERISTIC,
-            on_response_command
+            READ_COMMAND_CHARACTERISTIC, on_response_command
         )
 
     async def _request_other_settings(self) -> None:
@@ -314,13 +299,17 @@ class SnoozDeviceCharacteristicData:
     firmware: str
     software: str | None
 
+
 def get_device_model(data: SnoozDeviceCharacteristicData) -> SnoozDeviceModel:
     if data.model == "V4":
         return SnoozDeviceModel.BREEZ if data.hardware == "0" else SnoozDeviceModel.PRO
 
     return SnoozDeviceModel.ORIGINAL
 
-def combine_state(current: SnoozDeviceState, update: SnoozDeviceState) -> SnoozDeviceState:
+
+def combine_state(
+    current: SnoozDeviceState, update: SnoozDeviceState
+) -> SnoozDeviceState:
     result = copy_state(current)
 
     result.volume = update.volume
@@ -328,7 +317,10 @@ def combine_state(current: SnoozDeviceState, update: SnoozDeviceState) -> SnoozD
 
     return result
 
-def reduce_response_command(state: SnoozDeviceState, command: ResponseCommand, data: bytes) -> SnoozDeviceState:
+
+def reduce_response_command(
+    state: SnoozDeviceState, command: ResponseCommand, data: bytes
+) -> SnoozDeviceState:
     result = copy_state(state)
 
     match command:
@@ -336,20 +328,21 @@ def reduce_response_command(state: SnoozDeviceState, command: ResponseCommand, d
             result.fan_speed = int(data[3])
             result.fan_auto_enabled = data[10] == 0x01
             result.target_temperature = int(data[11])
-            _LOGGER.debug(f"Fan speed: {result.fan_speed}, auto: {result.fan_auto_enabled}, target: {result.target_temperature}")
         case ResponseCommand.TEMPERATURE:
             [temp] = struct.unpack("<f", data[0:4])
             result.temperature = round(temp, 2)
 
     return result
 
+
 def unpack_state(data: bytes) -> SnoozDeviceState:
     (volume, on) = struct.unpack("<BB", data[0:2])
 
     return SnoozDeviceState(
         volume=volume,
-        on = on == 0x01,
+        on=on == 0x01,
     )
+
 
 def copy_state(state: SnoozDeviceState) -> SnoozDeviceState:
     return SnoozDeviceState(**dataclasses.asdict(state))

@@ -8,12 +8,14 @@ from uuid import UUID
 from bleak import BleakClient, BLEDevice
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.service import BleakGATTServiceCollection
+from numpy import char
 
 from pysnooz import SnoozDevice, SnoozDeviceState, UnknownSnoozState
 from pysnooz.api import (
     READ_STATE_CHARACTERISTIC,
     WRITE_STATE_CHARACTERISTIC,
-    CommandId,
+    READ_COMMAND_CHARACTERISTIC,
+    Command,
     SnoozDeviceApi,
 )
 
@@ -143,13 +145,13 @@ class MockSnoozClient(BleakClient):
 
         command_id = data[0]
 
-        if command_id == CommandId.SET_TOKEN:
+        if command_id == Command.PASSWORD:
             self._has_set_token = True
             return
 
-        if command_id == CommandId.SET_POWER:
+        if command_id == Command.MOTOR_ENABLED:
             self._state.on = data[1] == 1
-        elif command_id == CommandId.SET_VOLUME:
+        elif command_id == Command.MOTOR_SPEED:
             self._state.volume = max(0, min(100, data[1]))
         else:
             raise Exception(f"Unexpected state data: {str(data)}")
@@ -169,10 +171,13 @@ class MockSnoozClient(BleakClient):
         ],
         **kwargs: Any,
     ) -> None:
-        if char_specifier != READ_STATE_CHARACTERISTIC:
+        if char_specifier not in [
+            READ_STATE_CHARACTERISTIC,
+            READ_COMMAND_CHARACTERISTIC,
+        ]:
             raise Exception(f"Unexpected char uuid: {char_specifier}")
 
-        self._notify_callback = callback
+        self._notify_callback[char_specifier] = callback
 
     async def stop_notify(
         self, char_specifier: BleakGATTCharacteristic | int | str | UUID
@@ -180,10 +185,10 @@ class MockSnoozClient(BleakClient):
         if char_specifier != READ_STATE_CHARACTERISTIC:
             raise Exception(f"Unexpected char specifier: {char_specifier}")
 
-        self._notify_callback = None
+        self._notify_callback[char_specifier] = None
 
     def _on_state_update(self) -> None:
-        if self._notify_callback is None:
+        if self._notify_callback[READ_STATE_CHARACTERISTIC] is None:
             return
 
         # pass None since it's unused by SnoozDeviceApi

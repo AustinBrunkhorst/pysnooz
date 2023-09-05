@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import logging
 from asyncio import AbstractEventLoop, CancelledError, Event, Lock, Task
 from datetime import datetime
@@ -20,7 +19,7 @@ from events import Events
 from transitions import EventData, Machine, State
 
 from pysnooz.advertisement import get_device_display_name
-from pysnooz.api import SnoozCommand, SnoozDeviceApi
+from pysnooz.api import SnoozDeviceApi
 from pysnooz.commands import (
     CommandProcessorState,
     SnoozCommandData,
@@ -300,9 +299,7 @@ class SnoozDevice:
             api.events.on_disconnect += lambda: self._machine.device_disconnected(
                 reason=DisconnectionReason.DEVICE
             )
-            api.events.on_state_change += lambda state: self._on_state_change(
-                state
-            )
+            api.events.on_state_change += lambda state: self._on_state_change(state)
             self._before_device_connected()
             self._api = api
         except DEVICE_UNAVAILABLE_EXCEPTIONS as ex:
