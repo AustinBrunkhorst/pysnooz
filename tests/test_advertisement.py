@@ -29,11 +29,22 @@ DEVICE_TOKEN_SEQUENCE = BluetoothServiceInfo(
     source="local",
 )
 
-DEVICE_TOKEN_DEADBEEF = BluetoothServiceInfo(
+DEVICE_TOKEN_ABCD = BluetoothServiceInfo(
     name="Snooz-ABCD",
     address="00:00:00:00:AB:CD",
     rssi=-63,
-    manufacturer_data={65552: bytes([4]) + b"\xDE\xAD\xBE\xEF"},
+    manufacturer_data={65552: bytes([4]) + bytes.fromhex("ABCD")},
+    service_uuids=[READ_STATE_CHARACTERISTIC, WRITE_STATE_CHARACTERISTIC],
+    service_data={},
+    source="local",
+)
+
+DEADBEEFCAFED00D = "DEADBEEFCAFED00D"
+DEVICE_TOKEN_DEADBEEFCAFED00D = BluetoothServiceInfo(
+    name="Snooz-ABCD",
+    address="00:00:00:00:AB:CD",
+    rssi=-63,
+    manufacturer_data={65552: bytes([4]) + bytes.fromhex(DEADBEEFCAFED00D)},
     service_uuids=[READ_STATE_CHARACTERISTIC, WRITE_STATE_CHARACTERISTIC],
     service_data={},
     source="local",
@@ -93,6 +104,9 @@ def test_pairing_mode():
     assert parser.supported(DEVICE_TOKEN_SEQUENCE) is True
     assert parser.is_pairing is False
 
-    assert parser.supported(DEVICE_TOKEN_DEADBEEF) is True
+    assert parser.supported(DEVICE_TOKEN_ABCD) is True
+    assert parser.is_pairing is False
+
+    assert parser.supported(DEVICE_TOKEN_DEADBEEFCAFED00D) is True
     assert parser.is_pairing is True
-    assert parser.pairing_token == "deadbeef"
+    assert parser.pairing_token == DEADBEEFCAFED00D.lower()

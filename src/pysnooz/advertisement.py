@@ -42,7 +42,10 @@ class SnoozAdvertisementData(BluetoothData):
         raw_token = advertisement[1:]
 
         if len(raw_token) != ADVERTISEMENT_TOKEN_LENGTH:
-            _LOGGER.debug(f"Skipped {data.name} because token length was unexpected ({len(raw_token)}): {raw_token.hex('-')}")
+            _LOGGER.debug(
+                f"Skipped {data.name} because token length was unexpected"
+                f" ({len(raw_token)}): {raw_token.hex('-')}"
+            )
             return
 
         # pairing mode is enabled if the advertisement token is
@@ -52,14 +55,6 @@ class SnoozAdvertisementData(BluetoothData):
 
         name = get_device_display_name(data.name, data.address)
         self.display_name = name
-
-        _LOGGER.debug(f"{name} advertised {advertisement.hex('-')}")
-
-        for i in data.service_uuids:
-            _LOGGER.debug(f"{name} found service {i}")
-
-        for i in data.service_data:
-            _LOGGER.debug(f"{name} found data ({i}) {data.service_data[i]}")
 
         self.set_title(name)
         self.set_device_name(name)

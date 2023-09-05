@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from enum import Enum, IntEnum
 from typing import Callable
 
-from transitions import EventData, Machine, State
+from transitions import Machine, State
 
 from pysnooz.api import MIN_DEVICE_VOLUME, SnoozDeviceApi
 from pysnooz.const import (
@@ -339,9 +339,9 @@ class DeviceActionCommand(SnoozCommandProcessor):
 class WriteDeviceStateCommand(SnoozCommandProcessor):
     async def _async_execute(self, api: SnoozDeviceApi) -> None:
         if self.command.volume is not None:
-            await api.async_set_motor_speed(self.command.volume)
+            await api.async_set_volume(self.command.volume)
         if self.command.on is not None:
-            await api.async_set_motor_enabled(self.command.on)
+            await api.async_set_power(self.command.on)
         if self.command.fan_speed is not None:
             await api.async_set_auto_temp_enabled(False)
             await api.async_set_fan_speed(self.command.fan_speed)

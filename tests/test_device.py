@@ -653,7 +653,7 @@ async def test_device_disconnects_during_transition(
     disconnect_every = 3
     total_set_volume_calls = 0
 
-    real_async_set_volume = SnoozDeviceApi.async_set_motor_speed
+    real_async_set_volume = SnoozDeviceApi.async_set_volume
 
     async def disconnect_occasionally(api: SnoozDeviceApi, volume: int) -> None:
         nonlocal total_set_volume_calls
@@ -684,7 +684,7 @@ async def test_user_disconnects_during_transition(
     disconnect_after = 6
     total_set_volume_calls = 0
 
-    real_async_set_volume = SnoozDeviceApi.async_set_motor_speed
+    real_async_set_volume = SnoozDeviceApi.async_set_volume
 
     async def user_disconnects_eventually(api: SnoozDeviceApi, volume: int) -> None:
         nonlocal total_set_volume_calls
@@ -716,7 +716,7 @@ async def test_device_unavailable_during_transition(
     disconnect_after = 4
     total_set_volume_calls = 0
 
-    real_async_set_volume = SnoozDeviceApi.async_set_motor_speed
+    real_async_set_volume = SnoozDeviceApi.async_set_volume
 
     async def device_becomes_unavailable(api: SnoozDeviceApi, volume: int) -> None:
         nonlocal total_set_volume_calls
@@ -750,7 +750,7 @@ async def test_manual_disconnect_during_transition(
     disconnect_after = 4
     total_set_volume_calls = 0
 
-    real_async_set_volume = SnoozDeviceApi.async_set_motor_speed
+    real_async_set_volume = SnoozDeviceApi.async_set_volume
 
     async def disconnects_manually(api: SnoozDeviceApi, volume: int) -> None:
         nonlocal total_set_volume_calls
