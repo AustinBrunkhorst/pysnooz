@@ -1,7 +1,7 @@
 from .advertisement import SnoozAdvertisementData
 from .commands import (
     SnoozCommandResultStatus,
-    enable_auto_temp,
+    set_auto_temp_enabled,
     get_device_info,
     set_fan_speed,
     set_temp_target,
@@ -32,6 +32,6 @@ __all__ = [
     "turn_fan_on",
     "turn_fan_off",
     "set_fan_speed",
-    "enable_auto_temp",
+    "set_auto_temp_enabled",
     "set_temp_target",
 ]

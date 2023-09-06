@@ -10,7 +10,7 @@ from typing import Callable
 
 from transitions import Machine, State
 
-from pysnooz.api import MIN_DEVICE_VOLUME, SnoozDeviceApi
+from pysnooz.api import MIN_DEVICE_VOLUME, MIN_FAN_SPEED, SnoozDeviceApi
 from pysnooz.const import (
     UNEXPECTED_ERROR_LOG_MESSAGE,
     SnoozDeviceInfo,
@@ -22,8 +22,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class SnoozDeviceAction(IntEnum):
-    GET_DEVICE_INFO = (0,)
-    ENABLE_AUTO_TEMP = 1
+    GET_DEVICE_INFO = 0
 
 
 @dataclass
@@ -39,6 +38,7 @@ class SnoozCommandData:
     fan_on: bool | None = None
     fan_speed: int | None = None
     temp_target: int | None = None
+    auto_temp_enabled: bool | None = None
 
     action: SnoozDeviceAction | None = None
 
@@ -66,8 +66,10 @@ class SnoozCommandData:
         if self.action is SnoozDeviceAction.GET_DEVICE_INFO:
             operations += ["GetDeviceInfo"]
 
-        if self.action is SnoozDeviceAction.ENABLE_AUTO_TEMP:
-            operations += ["EnableAutoTemp"]
+        if self.auto_temp_enabled is not None:
+            operations += [
+                f"{'Enable' if self.auto_temp_enabled else 'Disable'}AutoTemp"
+            ]
 
         return ", ".join(operations)
 
@@ -107,8 +109,8 @@ def set_fan_speed(speed: int) -> SnoozCommandData:
     return SnoozCommandData(fan_speed=speed)
 
 
-def enable_auto_temp() -> SnoozCommandData:
-    return SnoozCommandData(action=SnoozDeviceAction.ENABLE_AUTO_TEMP)
+def set_auto_temp_enabled(enabled: bool) -> SnoozCommandData:
+    return SnoozCommandData(auto_temp_enabled=enabled)
 
 
 def set_temp_target(temp: int) -> SnoozCommandData:
@@ -330,8 +332,6 @@ class DeviceActionCommand(SnoozCommandProcessor):
     async def _async_execute(self, api: SnoozDeviceApi) -> SnoozDeviceInfo | None:
         if self.command.action == SnoozDeviceAction.GET_DEVICE_INFO:
             return await api.async_get_info()
-        if self.command.action == SnoozDeviceAction.ENABLE_AUTO_TEMP:
-            await api.async_set_auto_temp_enabled(True)
 
         return None
 
@@ -343,14 +343,104 @@ class WriteDeviceStateCommand(SnoozCommandProcessor):
         if self.command.on is not None:
             await api.async_set_power(self.command.on)
         if self.command.fan_speed is not None:
-            await api.async_set_auto_temp_enabled(False)
             await api.async_set_fan_speed(self.command.fan_speed)
         if self.command.fan_on is not None:
-            await api.async_set_auto_temp_enabled(False)
-            await api.async_set_fan_enabled(self.command.fan_on)
+            await api.async_set_fan_power(self.command.fan_on)
+        if self.command.auto_temp_enabled is not None:
+            await api.async_set_auto_temp_enabled(self.command.auto_temp_enabled)
         if self.command.temp_target is not None:
             await api.async_set_auto_temp_enabled(True)
             await api.async_set_auto_temp_threshold(self.command.temp_target)
+
+
+class DeviceFeatureControls(ABC):
+    @property
+    def min_percent(self) -> int:
+        pass
+
+    @abstractmethod
+    def get_command_power(self, command: SnoozCommandData) -> bool | None:
+        pass
+
+    @abstractmethod
+    def get_command_percent(self, command: SnoozCommandData) -> int | None:
+        pass
+
+    @abstractmethod
+    def get_power(self, state: SnoozDeviceState) -> bool | None:
+        pass
+
+    @abstractmethod
+    def get_percent(self, state: SnoozDeviceState) -> int | None:
+        pass
+
+    @abstractmethod
+    async def async_set_power(self, api: SnoozDeviceApi) -> None:
+        pass
+
+    @abstractmethod
+    async def async_set_percent(self, api: SnoozDeviceApi) -> None:
+        pass
+
+
+class SoundControls(DeviceFeatureControls):
+    @property
+    def min_percent(self) -> int:
+        return MIN_DEVICE_VOLUME
+
+    def get_command_power(self, command: SnoozCommandData) -> bool | None:
+        return command.on
+
+    def get_command_percent(self, command: SnoozCommandData) -> int | None:
+        return command.volume
+
+    def get_power(self, state: SnoozDeviceState) -> bool | None:
+        return state.on
+
+    def get_percent(self, state: SnoozDeviceState) -> int | None:
+        return state.volume
+
+    async def async_set_power(self, api: SnoozDeviceApi, on: bool) -> None:
+        await api.async_set_power(on)
+
+    async def async_set_percent(self, api: SnoozDeviceApi, volume: int) -> None:
+        await api.async_set_volume(volume)
+
+
+class FanControls(DeviceFeatureControls):
+    @property
+    def min_percent(self) -> int:
+        return MIN_FAN_SPEED
+
+    def get_command_power(self, command: SnoozCommandData) -> bool | None:
+        return command.fan_on
+
+    def get_command_percent(self, command: SnoozCommandData) -> int | None:
+        return command.fan_speed
+
+    def get_power(self, state: SnoozDeviceState) -> bool | None:
+        return state.fan_on
+
+    def get_percent(self, state: SnoozDeviceState) -> int | None:
+        return state.fan_speed
+
+    async def async_set_power(self, api: SnoozDeviceApi, on: bool) -> None:
+        await api.async_set_fan_power(on)
+
+    async def async_set_percent(self, api: SnoozDeviceApi, speed: int) -> None:
+        await api.async_set_fan_speed(speed)
+
+
+@dataclass
+class ControlsTransition:
+    feature: DeviceFeatureControls
+    turning_on: bool | None
+    start_percent: int
+    end_percent: int
+
+    @property
+    def name(self) -> str:
+        return self.feature.__class__.__name__.replace("Controls", "")
 
 
 class TransitionedCommand(SnoozCommandProcessor):
@@ -373,6 +463,12 @@ class TransitionedCommand(SnoozCommandProcessor):
         self._transition = Transition()
         self._starting_state: SnoozDeviceState | None = None
         self._remaining_duration = data.duration
+        self._features: list[DeviceFeatureControls] = []
+
+        if data.on is not None or data.volume is not None:
+            self._features.append(SoundControls())
+        if data.fan_on is not None or data.fan_speed is not None:
+            self._features.append(FanControls())
 
     async def _async_execute(self, api: SnoozDeviceApi) -> None:
         # when resuming the transition, decrease the overall duration
@@ -384,7 +480,7 @@ class TransitionedCommand(SnoozCommandProcessor):
             else:
                 self._remaining_duration -= time_since_disconnect
 
-        current_state = await api.async_read_state()
+        current_state = api.state
 
         if self._starting_state is None:
             self._starting_state = current_state
@@ -393,118 +489,147 @@ class TransitionedCommand(SnoozCommandProcessor):
         # resumed after being disconnected for longer than the original transition,
         # so we just immediately set the target state
         if self._remaining_duration.seconds <= 0:
-            if self.command.on is not None and self.command.on != current_state.on:
-                await api.async_set_power(self.command.on)
+            for feature in self._features:
+                command_power = feature.get_command_power(self.command)
+                command_percent = feature.get_command_percent(self.command)
 
-            if (
-                self.command.volume is not None
-                and self.command.volume != current_state.volume
-            ):
-                await api.async_set_volume(self.command.volume)
-            elif (
-                self.command.volume is None
-                and not self.command.on
-                and self._starting_state.volume is not None
-            ):
-                await api.async_set_volume(self._starting_state.volume)
+                if command_power is not None and command_power != feature.get_power(
+                    current_state
+                ):
+                    await feature.async_set_power(api, command_power)
+
+                if (
+                    command_percent is not None
+                    and command_percent != feature.get_percent(current_state)
+                ):
+                    await feature.async_set_percent(api, command_percent)
+                elif (
+                    command_percent is None
+                    and not command_power
+                    and feature.get_percent(self._starting_state) is not None
+                ):
+                    await feature.async_set_percent(
+                        api, feature.get_percent(self._starting_state)
+                    )
 
             return
 
-        # SNOOZ supports values < MIN_DEVICE_VOLUME, but they don't effect the volume.
-        # To prevent a delay in the transition, set it to the minimum instead of 0
-        start_volume = (
-            (current_state.volume if current_state.on else MIN_DEVICE_VOLUME)
-            if self.command.on
-            else current_state.volume
-        )
-        end_volume = (
-            (self.command.volume or current_state.volume)
-            if self.command.on
-            else MIN_DEVICE_VOLUME
-        )
+        transitions: list[ControlsTransition] = []
 
-        if start_volume is None:
-            raise ValueError("Start volume was None")
+        for feature in self._features:
+            current_power = feature.get_power(current_state)
+            current_percent = feature.get_percent(current_state)
+            command_power = feature.get_command_power(self.command)
 
-        if end_volume is None:
-            raise ValueError("End volume was None")
+            # To prevent a delay in the transition, set it to the minimum instead of 0
+            start_percent = (
+                (current_percent if current_power else feature.min_percent)
+                if command_power
+                else current_percent
+            )
+            end_percent = (
+                (feature.get_percent(self.command) or current_percent)
+                if command_power
+                else feature.min_percent
+            )
 
-        # turn on the device if necessary
-        if self.command.on and not current_state.on:
-            # set volume before turning on to prevent a moment with the original volume
-            await api.async_set_volume(start_volume)
-            await api.async_set_power(True)
+            if start_percent is None:
+                raise ValueError("Start percent was None")
 
-        await self._async_transition_volume(
+            if end_percent is None:
+                raise ValueError("End percent was None")
+
+            # turn on the feature if necessary
+            if command_power and not current_power:
+                # set percent before turning on to prevent a moment with
+                # the original value
+                await feature.async_set_percent(api, start_percent)
+                await feature.async_set_power(api, True)
+
+            transitions.append(
+                ControlsTransition(feature, command_power, start_percent, end_percent)
+            )
+
+        await self._async_transition_controls(
             api,
-            self.command.on,
-            start_volume,
-            end_volume,
+            transitions,
             self._remaining_duration,
         )
 
-    async def _async_transition_volume(
+    async def _async_transition_controls(
         self,
         api: SnoozDeviceApi,
-        turning_on: bool | None,
-        start_volume: int,
-        end_volume: int,
+        controls: list[ControlsTransition],
         duration: timedelta,
     ) -> None:
-        # if the device is already at the target volume, avoid the transition
-        if start_volume == end_volume:
+        # if the device is already at the target states, avoid the transition
+        if all(c.start_percent == c.end_percent for c in controls):
             return
 
         action = "resume" if self.is_resuming else "start"
-        _LOGGER.debug(
-            self._(
-                f"[{action}] volume {start_volume}% to {end_volume}%"
-                f"{'' if turning_on else ' then turn off'} in {duration}"
+
+        last_percent: dict[str, int] = {}
+
+        for transition in controls:
+            _LOGGER.debug(
+                self._(
+                    f"[{action}] {transition.name} {transition.start_percent}%"
+                    f" to {transition.end_percent}%"
+                    f"{'' if transition.turning_on else ' then turn off'} in {duration}"
+                )
             )
-        )
+            last_percent[transition.name] = transition.start_percent
 
-        last_volume = start_volume
+        async def on_update(progress: float) -> None:
+            nonlocal last_percent, controls
 
-        async def on_update(volume: float) -> None:
-            nonlocal last_volume
+            for transition in controls:
+                next_percent = int(
+                    round(
+                        transition.start_percent
+                        + (transition.end_percent - transition.start_percent) * progress
+                    )
+                )
 
-            next_volume = int(round(volume))
-
-            if next_volume != last_volume:
-                _LOGGER.debug(self._(f"[{action}] set volume {next_volume}%"))
-                await api.async_set_volume(next_volume)
-                last_volume = next_volume
+                if next_percent != last_percent.get(transition.name, None):
+                    await transition.feature.async_set_percent(api, next_percent)
+                    last_percent[transition.name] = next_percent
 
         async def on_complete() -> None:
-            if not turning_on:
-                nonlocal last_volume
+            for transition in controls:
+                if not transition.turning_on:
+                    nonlocal last_percent
 
-                initial_volume: int | None = None
+                    initial_percent: int | None = None
 
-                if (
-                    self._starting_state is not None
-                    and self._starting_state.volume is not None
-                    and self._starting_state.volume != last_volume
-                ):
-                    initial_volume = self._starting_state.volume
-                    _LOGGER.debug(
-                        self._(
-                            f"[{action}] power off and reset to "
-                            f"{self._starting_state.volume}% volume"
+                    if (
+                        self._starting_state is not None
+                        and transition.feature.get_percent(self._starting_state)
+                        is not None
+                        and transition.feature.get_percent(self._starting_state)
+                        != last_percent.get(transition.name, None)
+                    ):
+                        initial_percent = transition.feature.get_percent(
+                            self._starting_state
                         )
-                    )
-                else:
-                    _LOGGER.debug(self._(f"[{action}] power off"))
+                        _LOGGER.debug(
+                            self._(
+                                f"[{action}] {transition.name} power off and reset to "
+                                f"{initial_percent}%"
+                            )
+                        )
+                    else:
+                        _LOGGER.debug(self._(f"[{action}] {transition.name} power off"))
 
-                await api.async_set_power(False)
+                    await transition.feature.async_set_power(api, False)
 
-                # if we want to turn on again, make sure we reset
-                # the volume before starting the transition
-                if initial_volume is not None:
-                    await api.async_set_volume(initial_volume)
+                    # if we want to turn on again, make sure we reset
+                    # the value before starting the transition
+                    if initial_percent is not None:
+                        await transition.feature.async_set_percent(api, initial_percent)
 
         await self._transition.async_run(
-            self.loop, start_volume, end_volume, duration, on_update, on_complete
+            self.loop, 0.0, 1.0, duration, on_update, on_complete
         )
 
     def _cancel_active_tasks(self) -> None:

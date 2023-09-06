@@ -4,7 +4,7 @@ import asyncio
 import dataclasses
 import struct
 import logging
-from asyncio import Event, Lock
+from asyncio import Event, Lock, Task
 from enum import IntEnum
 from typing import Callable
 from attr import dataclass
@@ -22,6 +22,7 @@ from .const import (
     READ_COMMAND_CHARACTERISTIC,
     SOFTWARE_REVISION_CHARACTERISTIC,
     WRITE_STATE_CHARACTERISTIC,
+    WRITE_OTA_CHARACTERISTIC,
     SnoozDeviceInfo,
     SnoozDeviceModel,
     SnoozDeviceState,
@@ -30,6 +31,12 @@ from .const import (
 
 # values less than this have no effect
 MIN_DEVICE_VOLUME = 10
+MIN_FAN_SPEED = 10
+
+# When auto fan is enabled, the device will poll for fan power state updates since
+# the device doesn't push them. This is the interval of temperature updates to
+# wait for before requesting the current state of the device.
+AUTO_FAN_TEMP_POLL_INTERVAL = 5
 
 # number of times to retry a transient command failure before giving up
 RETRY_WRITE_FAILURE_COUNT = 5
@@ -105,6 +112,8 @@ class SnoozDeviceApi:
         self._device_info: SnoozDeviceInfo | None = None
         self._write_lock = Lock()
         self._other_settings_received = Event()
+        self._temp_updates_received: int = 0
+        self._manual_update_task: Task | None = None
         self._ = format_log_message or (lambda msg: msg)
 
     @property
@@ -129,7 +138,7 @@ class SnoozDeviceApi:
         if not self.is_connected:
             return None
 
-        char_props = []
+        string_props = []
         for char_uuid in (
             MANUFACTURER_NAME_CHARACTERISTIC,
             MODEL_NUMBER_CHARACTERISTIC,
@@ -145,16 +154,19 @@ class SnoozDeviceApi:
                 value = (
                     (await self._client.read_gatt_char(char)).decode().split("\0")[0]
                 )
-            char_props.append(value)
+            string_props.append(value)
 
-        data = SnoozDeviceCharacteristicData(*char_props)
-        model = get_device_model(data)
+        data = SnoozDeviceCharacteristicData(*string_props)
+        has_ota = (
+            self._client.services.get_characteristic(WRITE_OTA_CHARACTERISTIC)
+            is not None
+        )
+        model = get_device_model(data, has_ota)
 
         self.state = await self.async_read_state()
 
         if model == SnoozDeviceModel.BREEZ:
             await self._request_other_settings()
-            _LOGGER.debug(self._("Waiting for settings"))
             await self._other_settings_received.wait()
 
         # result is cached in memory
@@ -175,13 +187,14 @@ class SnoozDeviceApi:
     async def async_set_power(self, on: bool) -> None:
         await self._async_write_state(bytes([Command.MOTOR_ENABLED, 1 if on else 0]))
 
-    async def async_set_fan_enabled(self, on: bool) -> None:
+    async def async_set_fan_power(self, on: bool) -> None:
         await self._async_write_state(bytes([Command.FAN_ENABLED, 1 if on else 0]))
 
     async def async_set_auto_temp_enabled(self, on: bool) -> None:
         await self._async_write_state(
             bytes([Command.AUTO_TEMP_ENABLED, 1 if on else 0])
         )
+        await self._request_other_settings()
 
     async def async_set_volume(self, volume: int) -> None:
         if volume < 0 or volume > 100:
@@ -221,21 +234,33 @@ class SnoozDeviceApi:
             return
 
         def on_state_update(_, data: bytes) -> None:
-            _LOGGER.debug(self._(f"Receive state {data.hex('-')}"))
             self._update_state(combine_state(self.state, unpack_state(data)))
 
         def on_response_command(_, data: bytes) -> None:
             command = ResponseCommand(data[0])
             payload = data[1:]
 
-            if command != ResponseCommand.TEMPERATURE:
-                _LOGGER.debug(self._(f"Receive {command} {payload.hex('-')}"))
-
             next_state = reduce_response_command(self.state, command, payload)
             self._update_state(next_state)
 
+            if (
+                command == ResponseCommand.TEMPERATURE
+                and self.state.fan_auto_enabled is True
+            ):
+                self._temp_updates_received = self._temp_updates_received + 1
+                if self._temp_updates_received % AUTO_FAN_TEMP_POLL_INTERVAL == 0:
+                    self._schedule_manual_update()
+
             if command == ResponseCommand.SEND_OTHER_SETTINGS:
                 self._other_settings_received.set()
+
+        def on_disconnect():
+            # cancel any pending manual updates
+            if self._manual_update_task is not None:
+                self._manual_update_task.cancel()
+                self._manual_update_task = None
+
+        self.events.on_disconnect += on_disconnect
 
         await self._client.start_notify(
             READ_STATE_CHARACTERISTIC,
@@ -247,6 +272,15 @@ class SnoozDeviceApi:
 
     async def _request_other_settings(self) -> None:
         await self._async_write_state(bytes([Command.REQUEST_OTHER_SETTINGS]))
+
+    def _schedule_manual_update(self) -> None:
+        if self._manual_update_task is not None and not self._manual_update_task.done():
+            return
+
+        self._manual_update_task = asyncio.get_event_loop().create_task(
+            self._request_other_settings(),
+            name=self._("Manual update"),
+        )
 
     def _update_state(self, next_state: SnoozDeviceState) -> None:
         did_change = next_state != self.state
@@ -301,8 +335,10 @@ class SnoozDeviceCharacteristicData:
     software: str | None
 
 
-def get_device_model(data: SnoozDeviceCharacteristicData) -> SnoozDeviceModel:
-    if data.model == "V4":
+def get_device_model(
+    data: SnoozDeviceCharacteristicData, has_ota: bool
+) -> SnoozDeviceModel:
+    if has_ota and data.model == "V4":
         return SnoozDeviceModel.BREEZ if data.hardware == "0" else SnoozDeviceModel.PRO
 
     return SnoozDeviceModel.ORIGINAL

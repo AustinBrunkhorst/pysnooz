@@ -62,7 +62,6 @@ class Transition:
         self.last_update = start_time
 
         async def dispatch_update(value: float) -> None:
-            _LOGGER.debug(f"[{self._run_id}] {progress * 100:.1f}%: {value:.2f}")
             await async_on_update(value)
 
         async def dispatch_complete() -> None:
