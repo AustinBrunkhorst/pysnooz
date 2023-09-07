@@ -19,7 +19,7 @@ from events import Events
 from transitions import EventData, Machine, State
 
 from pysnooz.advertisement import get_device_display_name
-from pysnooz.api import MissingCharacteristicException, SnoozDeviceApi
+from pysnooz.api import MissingCharacteristicError, SnoozDeviceApi
 from pysnooz.commands import (
     CommandProcessorState,
     SnoozCommandData,
@@ -44,7 +44,7 @@ DEVICE_UNAVAILABLE_EXCEPTIONS = (
     BleakAbortedError,
     BleakConnectionError,
     BleakNotFoundError,
-    MissingCharacteristicException,
+    MissingCharacteristicError,
 )
 
 
@@ -229,6 +229,7 @@ class SnoozDevice:
         result = await self.async_execute_command(get_device_info())
 
         self._info = result.response
+
         return self._info
 
     async def async_execute_command(self, data: SnoozCommandData) -> SnoozCommandResult:
@@ -236,7 +237,10 @@ class SnoozDevice:
 
         start_time = datetime.now()
         command = create_command_processor(
-            self._loop, start_time, data, format_log_message=self._
+            self._loop,
+            start_time,
+            data,
+            format_log_message=self._,
         )
         self._current_command = command
 
@@ -302,7 +306,13 @@ class SnoozDevice:
             api.events.on_disconnect += lambda: self._machine.device_disconnected(
                 reason=DisconnectionReason.DEVICE
             )
-            api.events.on_state_patched += lambda state: self._apply_state_patch(state)
+
+            def apply_state_patch(state: SnoozDeviceState) -> None:
+                if self._store.patch(state):
+                    self.events.on_state_change(self.state)
+
+            api.events.on_state_patched += apply_state_patch
+
             self._before_device_connected()
             self._api = api
         except DEVICE_UNAVAILABLE_EXCEPTIONS as ex:
@@ -311,22 +321,13 @@ class SnoozDevice:
         # ensure each call with side effects checks the connection status
         # to prevent a cancellation race condition
 
-        def is_connecting():
-            return self.connection_status == SnoozConnectionStatus.CONNECTED
-
-        if is_connecting():
+        if self.connection_status == SnoozConnectionStatus.CONNECTING:
             await api.async_authenticate_connection(bytes.fromhex(self._token))
 
-        if is_connecting():
-            self._info = await api.async_get_info()
+        if self.connection_status == SnoozConnectionStatus.CONNECTING:
+            await api.async_subscribe()
 
-        if is_connecting():
-            await api.async_subscribe_state()
-
-        if is_connecting() and self._info.supports_fan:
-            await api.async_subscribe_commands()
-
-        if is_connecting():
+        if self.connection_status == SnoozConnectionStatus.CONNECTING:
             self._machine.connection_ready()
 
     async def _async_create_api(self) -> SnoozDeviceApi:
@@ -344,19 +345,19 @@ class SnoozDevice:
             self.display_name,
             _on_disconnect,
             use_services_cache=True,
+            ble_device_callback=lambda: self._device,
         )
 
         try:
             api.load_client(client)
-        except MissingCharacteristicException as ex:
+        except MissingCharacteristicError as ex:
             await client.clear_cache()
 
+            self._expected_disconnect = True
             try:
-                self._expected_disconnect = True
                 await client.disconnect()
+            finally:
                 self._expected_disconnect = False
-            except Exception:
-                pass
 
             raise ex
 
@@ -421,10 +422,6 @@ class SnoozDevice:
 
         self._last_dispatched_connection_status = new_status
         self.events.on_connection_status_change(new_status)
-
-    def _apply_state_patch(self, state: SnoozDeviceState) -> None:
-        if self._store.patch(state):
-            self.events.on_state_change(self.state)
 
     def _after_device_disconnected(self, e: EventData) -> None:
         reason: DisconnectionReason = e.kwargs.get("reason")

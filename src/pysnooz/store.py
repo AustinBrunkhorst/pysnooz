@@ -1,11 +1,9 @@
-from attr import dataclass
-
-from pysnooz.const import SnoozDeviceState, UnknownSnoozState
+from pysnooz.const import SnoozDeviceState
 
 
-@dataclass
 class SnoozStateStore:
-    current: SnoozDeviceState = UnknownSnoozState
+    def __init__(self) -> None:
+        self.current = SnoozDeviceState()
 
     def patch(self, state: SnoozDeviceState) -> bool:
         updated_props = [

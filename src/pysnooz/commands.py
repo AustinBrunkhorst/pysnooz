@@ -480,7 +480,7 @@ class TransitionedCommand(SnoozCommandProcessor):
             else:
                 self._remaining_duration -= time_since_disconnect
 
-        current_state = api.state
+        current_state = await api.async_read_state()
 
         if self._starting_state is None:
             self._starting_state = current_state
@@ -597,36 +597,33 @@ class TransitionedCommand(SnoozCommandProcessor):
 
         async def on_complete() -> None:
             for transition in controls:
-                if not transition.turning_on:
-                    nonlocal last_percent
+                if transition.turning_on:
+                    continue
 
-                    initial_percent: int | None = None
+                nonlocal last_percent
 
-                    if (
-                        self._starting_state is not None
-                        and transition.feature.get_percent(self._starting_state)
-                        is not None
-                        and transition.feature.get_percent(self._starting_state)
-                        != last_percent.get(transition.name, None)
-                    ):
-                        initial_percent = transition.feature.get_percent(
-                            self._starting_state
+                initial_percent: int | None = (
+                    transition.feature.get_percent(self._starting_state)
+                    if self._starting_state is not None
+                    else None
+                )
+
+                if initial_percent is not None:
+                    _LOGGER.debug(
+                        self._(
+                            f"[{action}] {transition.name} power off and reset to "
+                            f"{initial_percent}%"
                         )
-                        _LOGGER.debug(
-                            self._(
-                                f"[{action}] {transition.name} power off and reset to "
-                                f"{initial_percent}%"
-                            )
-                        )
-                    else:
-                        _LOGGER.debug(self._(f"[{action}] {transition.name} power off"))
+                    )
+                else:
+                    _LOGGER.debug(self._(f"[{action}] {transition.name} power off"))
 
-                    await transition.feature.async_set_power(api, False)
+                await transition.feature.async_set_power(api, False)
 
-                    # if we want to turn on again, make sure we reset
-                    # the value before starting the transition
-                    if initial_percent is not None:
-                        await transition.feature.async_set_percent(api, initial_percent)
+                # if we want to turn on again, make sure we reset
+                # the value before starting the transition
+                if initial_percent is not None:
+                    await transition.feature.async_set_percent(api, initial_percent)
 
         await self._transition.async_run(
             self.loop, 0.0, 1.0, duration, on_update, on_complete

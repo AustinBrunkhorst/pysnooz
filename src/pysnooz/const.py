@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import dataclasses
 from enum import Enum
 from typing import Any
 
@@ -92,7 +93,6 @@ UnknownSnoozState = SnoozDeviceState()
 @dataclass
 class SnoozDeviceInfo:
     model: SnoozDeviceModel
-    state: SnoozDeviceState
     manufacturer: str
     hardware: str
     firmware: str

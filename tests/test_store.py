@@ -1,10 +1,10 @@
-from pysnooz import SnoozDeviceState, UnknownSnoozState
+from pysnooz import SnoozDeviceState
 from pysnooz.store import SnoozStateStore
 
 
 def test_patch():
     store = SnoozStateStore()
-    assert store.current == UnknownSnoozState
+    assert store.current == SnoozDeviceState()
 
     initial_state = SnoozDeviceState(on=True, volume=10)
     assert store.patch(initial_state) is True

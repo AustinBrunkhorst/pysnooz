@@ -564,7 +564,7 @@ async def test_disconnect_before_ready_then_reconnects(
     assert device.is_connected
     assert device.state.on
     assert device.state.volume == 26
-    on_state_change.assert_called_with(SnoozDeviceState(True, 26))
+    on_state_change.assert_called_with(SnoozDeviceState(on=True, volume=26))
 
 
 @pytest.mark.asyncio
@@ -641,7 +641,7 @@ async def test_disconnect_while_reconnecting_before_ready(
     assert device.is_connected
     assert device.state.on
     assert device.state.volume == 26
-    on_state_change.assert_called_with(SnoozDeviceState(True, 26))
+    on_state_change.assert_called_with(SnoozDeviceState(on=True, volume=26))
 
 
 @pytest.mark.asyncio
