@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable
 from uuid import UUID
+from attr import validate
 
 from bleak import BleakClient, BLEDevice
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.service import BleakGATTServiceCollection
-from numpy import char
 
 from pysnooz import SnoozDevice, SnoozDeviceState, UnknownSnoozState
 from pysnooz.api import (
@@ -67,9 +67,11 @@ class MockSnoozClient(BleakClient):
         self._disconnected_callback = disconnected_callback
 
         self._has_set_token = False
-        self._notify_callback: Callable[
-            [BleakGATTCharacteristic, bytearray], None | Awaitable[None]
-        ] | None = None
+        self._notify_callback: dict[
+            str,
+            Callable[[BleakGATTCharacteristic, bytearray], None | Awaitable[None]]
+            | None,
+        ] = {}
 
     async def connect(self, **kwargs: Any) -> bool:
         self._is_connected = True
@@ -99,7 +101,7 @@ class MockSnoozClient(BleakClient):
         """Reset the mock state."""
         self._is_connected = True
         self._has_set_token = False
-        self._notify_callback = None
+        self._notify_callback = {}
 
         if initial_state:
             self._state = SnoozDeviceState(on=False, volume=10)
@@ -171,19 +173,14 @@ class MockSnoozClient(BleakClient):
         ],
         **kwargs: Any,
     ) -> None:
-        if char_specifier not in [
-            READ_STATE_CHARACTERISTIC,
-            READ_COMMAND_CHARACTERISTIC,
-        ]:
-            raise Exception(f"Unexpected char uuid: {char_specifier}")
+        verify_notify_char(char_specifier)
 
         self._notify_callback[char_specifier] = callback
 
     async def stop_notify(
         self, char_specifier: BleakGATTCharacteristic | int | str | UUID
     ) -> None:
-        if char_specifier != READ_STATE_CHARACTERISTIC:
-            raise Exception(f"Unexpected char specifier: {char_specifier}")
+        verify_notify_char(char_specifier)
 
         self._notify_callback[char_specifier] = None
 
@@ -196,6 +193,14 @@ class MockSnoozClient(BleakClient):
 
     def _get_state_char_data(self) -> bytearray:
         return char_data_from_state(self._state)
+
+
+def verify_notify_char(char_specifier: BleakGATTCharacteristic | int | str | UUID):
+    if char_specifier not in [
+        READ_STATE_CHARACTERISTIC,
+        READ_COMMAND_CHARACTERISTIC,
+    ]:
+        raise Exception(f"Unexpected char uuid: {char_specifier}")
 
 
 def char_data_from_state(state: SnoozDeviceState) -> bytearray:

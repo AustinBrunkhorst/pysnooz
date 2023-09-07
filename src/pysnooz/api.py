@@ -9,7 +9,7 @@ from enum import IntEnum
 from typing import Callable
 from attr import dataclass
 
-from bleak import BleakClient
+from bleak import BleakClient, BleakGATTCharacteristic
 from bleak.exc import BleakDBusError
 from events import Events
 
@@ -100,31 +100,60 @@ class ResponseCommand(IntEnum):
     TEMPERATURE = 9
 
 
+class MissingCharacteristicException(Exception):
+    """Raised when a required characteristic is missing on a client"""
+
+    def __init__(self, uuid: str) -> None:
+        super().__init__(f"Missing characteristic {uuid}")
+
+
+@dataclass
+class RequiredCharacteristic:
+    uuid: str
+
+    def get(self, client: BleakClient) -> BleakGATTCharacteristic:
+        char = client.services.get_characteristic(self.uuid)
+
+        if char is None:
+            raise MissingCharacteristicException(self.uuid)
+
+        return char
+
+
 class SnoozDeviceApi:
+    event_names = ("on_disconnect", "on_state_patched")
+
     def __init__(
         self,
         client: BleakClient | None = None,
         format_log_message: Callable[[str], str] | None = None,
     ) -> None:
-        self.state = UnknownSnoozState
         self.unsubscribe_all_events()
         self._client = client
-        self._device_info: SnoozDeviceInfo | None = None
         self._write_lock = Lock()
         self._other_settings_received = Event()
-        self._temp_updates_received: int = 0
-        self._manual_update_task: Task | None = None
         self._ = format_log_message or (lambda msg: msg)
+        self._read_state_char = RequiredCharacteristic(READ_STATE_CHARACTERISTIC)
+        self._read_command_char = RequiredCharacteristic(READ_COMMAND_CHARACTERISTIC)
+        self._write_state_char = RequiredCharacteristic(WRITE_STATE_CHARACTERISTIC)
+        self._required_chars = [
+            self._read_state_char,
+            self._read_command_char,
+            self._write_state_char,
+        ]
 
     @property
     def is_connected(self) -> bool:
         return self._client is not None and self._client.is_connected
 
-    def set_client(self, client: BleakClient) -> None:
+    def load_client(self, client: BleakClient) -> None:
         self._client = client
 
+        for char in self._required_chars:
+            char.get(client)
+
     def unsubscribe_all_events(self) -> None:
-        self.events = Events(("on_disconnect", "on_state_change"))
+        self.events = Events(self.event_names)
 
     async def async_disconnect(self) -> None:
         if self._client is None:
@@ -163,23 +192,21 @@ class SnoozDeviceApi:
         )
         model = get_device_model(data, has_ota)
 
-        self.state = await self.async_read_state()
+        state = await self.async_read_state()
 
         if model == SnoozDeviceModel.BREEZ:
-            await self._request_other_settings()
+            await self.async_request_other_settings()
             await self._other_settings_received.wait()
 
         # result is cached in memory
-        self._device_info = SnoozDeviceInfo(
+        return SnoozDeviceInfo(
             model=model,
-            state=self.state,
+            state=state,
             manufacturer=data.manufacturer,
             hardware=data.hardware,
             firmware=data.firmware,
             software=data.software,
         )
-
-        return self._device_info
 
     async def async_authenticate_connection(self, token: bytes) -> None:
         await self._async_write_state(bytes([Command.PASSWORD, *token]))
@@ -194,7 +221,7 @@ class SnoozDeviceApi:
         await self._async_write_state(
             bytes([Command.AUTO_TEMP_ENABLED, 1 if on else 0])
         )
-        await self._request_other_settings()
+        await self.async_request_other_settings()
 
     async def async_set_volume(self, volume: int) -> None:
         if volume < 0 or volume > 100:
@@ -215,80 +242,50 @@ class SnoozDeviceApi:
             )
 
         await self._async_write_state(bytes([Command.AUTO_TEMP_THRESHOLD, threshold_f]))
-        await self._request_other_settings()
+        await self.async_request_other_settings()
 
     async def async_read_state(self, use_cached: bool = False) -> SnoozDeviceState:
         if self._client is None:
             raise Exception("self._client was None")
 
         data = await self._client.read_gatt_char(
-            READ_STATE_CHARACTERISTIC, use_cached=use_cached
+            self._read_state_char.get(), use_cached=use_cached
         )
-        return unpack_state(data)
+        return unpack_partial_state(data)
 
-    async def async_subscribe_to_notifications(self) -> None:
+    async def async_subscribe_state(self) -> None:
         if self._client is None:
             raise Exception("self._client was None")
 
         if not self._client.is_connected:
             return
 
-        def on_state_update(_, data: bytes) -> None:
-            self._update_state(combine_state(self.state, unpack_state(data)))
+        def on_state_change(_, payload: bytes) -> None:
+            self.events.on_state_patched(unpack_partial_state(payload))
 
+        await self._client.start_notify(
+            self._read_state_char.get(),
+            on_state_change,
+        )
+
+    async def async_subscribe_commands(self) -> None:
         def on_response_command(_, data: bytes) -> None:
             command = ResponseCommand(data[0])
             payload = data[1:]
 
-            next_state = reduce_response_command(self.state, command, payload)
-            self._update_state(next_state)
-
-            if (
-                command == ResponseCommand.TEMPERATURE
-                and self.state.fan_auto_enabled is True
-            ):
-                self._temp_updates_received = self._temp_updates_received + 1
-                if self._temp_updates_received % AUTO_FAN_TEMP_POLL_INTERVAL == 0:
-                    self._schedule_manual_update()
+            self.events.on_state_patched(
+                unpack_response_command(self._state, command, payload)
+            )
 
             if command == ResponseCommand.SEND_OTHER_SETTINGS:
                 self._other_settings_received.set()
 
-        def on_disconnect():
-            # cancel any pending manual updates
-            if self._manual_update_task is not None:
-                self._manual_update_task.cancel()
-                self._manual_update_task = None
-
-        self.events.on_disconnect += on_disconnect
-
         await self._client.start_notify(
-            READ_STATE_CHARACTERISTIC,
-            on_state_update,
-        )
-        await self._client.start_notify(
-            READ_COMMAND_CHARACTERISTIC, on_response_command
+            self._read_command_char.get(), on_response_command
         )
 
-    async def _request_other_settings(self) -> None:
+    async def async_request_other_settings(self) -> None:
         await self._async_write_state(bytes([Command.REQUEST_OTHER_SETTINGS]))
-
-    def _schedule_manual_update(self) -> None:
-        if self._manual_update_task is not None and not self._manual_update_task.done():
-            return
-
-        self._manual_update_task = asyncio.get_event_loop().create_task(
-            self._request_other_settings(),
-            name=self._("Manual update"),
-        )
-
-    def _update_state(self, next_state: SnoozDeviceState) -> None:
-        did_change = next_state != self.state
-        self.state = next_state
-
-        if did_change:
-            _LOGGER.debug(self._(f"State change {self.state}"))
-            self.events.on_state_change(self.state)
 
     async def _async_write_state(self, data: bytes | None = None) -> None:
         assert self._client
@@ -305,7 +302,7 @@ class SnoozDeviceApi:
                         message += f" (attempt {attempts+1}, last error: {last_ex})"
                     _LOGGER.debug(self._(message))
                     await self._client.write_gatt_char(
-                        WRITE_STATE_CHARACTERISTIC, data, response=True
+                        self._write_state_char, data, response=True
                     )
                     return
                 except BleakDBusError as ex:
@@ -344,23 +341,8 @@ def get_device_model(
     return SnoozDeviceModel.ORIGINAL
 
 
-def combine_state(
-    current: SnoozDeviceState, update: SnoozDeviceState
-) -> SnoozDeviceState:
-    result = copy_state(current)
-
-    result.volume = update.volume
-    result.on = update.on
-    result.fan_on = update.fan_on
-    result.fan_speed = update.fan_speed
-
-    return result
-
-
-def reduce_response_command(
-    state: SnoozDeviceState, command: ResponseCommand, data: bytes
-) -> SnoozDeviceState:
-    result = copy_state(state)
+def unpack_response_command(command: ResponseCommand, data: bytes) -> SnoozDeviceState:
+    result = SnoozDeviceState()
 
     match command:
         case ResponseCommand.SEND_OTHER_SETTINGS:
@@ -377,7 +359,7 @@ def reduce_response_command(
     return result
 
 
-def unpack_state(data: bytes) -> SnoozDeviceState:
+def unpack_partial_state(data: bytes) -> SnoozDeviceState:
     (volume, on, fan_speed, fan_on) = struct.unpack("<BBxBB", data[0:5])
 
     return SnoozDeviceState(
@@ -386,7 +368,3 @@ def unpack_state(data: bytes) -> SnoozDeviceState:
         fan_on=bool(fan_on),
         fan_speed=fan_speed,
     )
-
-
-def copy_state(state: SnoozDeviceState) -> SnoozDeviceState:
-    return SnoozDeviceState(**dataclasses.asdict(state))

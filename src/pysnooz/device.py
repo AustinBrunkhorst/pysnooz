@@ -19,7 +19,7 @@ from events import Events
 from transitions import EventData, Machine, State
 
 from pysnooz.advertisement import get_device_display_name
-from pysnooz.api import SnoozDeviceApi
+from pysnooz.api import MissingCharacteristicException, SnoozDeviceApi
 from pysnooz.commands import (
     CommandProcessorState,
     SnoozCommandData,
@@ -34,6 +34,7 @@ from pysnooz.const import (
     SnoozDeviceState,
     UnknownSnoozState,
 )
+from pysnooz.store import SnoozStateStore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ DEVICE_UNAVAILABLE_EXCEPTIONS = (
     BleakAbortedError,
     BleakConnectionError,
     BleakNotFoundError,
+    MissingCharacteristicException,
 )
 
 
@@ -58,7 +60,7 @@ class DisconnectionReason(Enum):
     # the bluetooth connection was lost
     DEVICE = 1
     # a connection attempt failed with a known error
-    # like a timeout or device not found
+    # like a timeout or device not found or missing characteristic
     DEVICE_UNAVAILABLE = 2
     # an exception was thrown during connection or
     # command execution that was uncaught
@@ -79,7 +81,7 @@ class SnoozDevice:
     ) -> None:
         self.events = Events(
             (
-                # received state from bluetooth characteristic
+                # one or more state properties have changed
                 "on_state_change",
                 # SnoozConnectionStatus
                 "on_connection_status_change",
@@ -101,12 +103,13 @@ class SnoozDevice:
         self._connection_ready_time: datetime | None = None
         self._api: SnoozDeviceApi | None = None
         self._info: SnoozDeviceInfo | None = None
+        self._store = SnoozStateStore()
         self._connect_lock = Lock()
         self._command_lock = Lock()
         self._connection_task: Task[None] | None = None
         self._reconnection_task: Task[None] | None = None
         self._current_command: SnoozCommandProcessor | None = None
-        self._is_manually_disconnecting: bool = False
+        self._expected_disconnect: bool = False
 
         not_disconnected = [
             SnoozConnectionStatus.CONNECTING,
@@ -173,7 +176,7 @@ class SnoozDevice:
 
     @property
     def state(self) -> SnoozDeviceState:
-        return self._api.state if self._api is not None else UnknownSnoozState
+        return self._store.current
 
     def subscribe_to_state_change(
         self, callback: Callable[[], None]
@@ -199,7 +202,7 @@ class SnoozDevice:
         if self.connection_status == SnoozConnectionStatus.DISCONNECTED:
             return
 
-        self._is_manually_disconnecting = True
+        self._expected_disconnect = True
         try:
             self._cancel_current_command()
 
@@ -217,7 +220,7 @@ class SnoozDevice:
 
             self._machine.device_disconnected(reason=DisconnectionReason.USER)
         finally:
-            self._is_manually_disconnecting = False
+            self._expected_disconnect = False
 
     async def async_get_info(self) -> SnoozDeviceInfo | None:
         if self._info is not None:
@@ -299,7 +302,7 @@ class SnoozDevice:
             api.events.on_disconnect += lambda: self._machine.device_disconnected(
                 reason=DisconnectionReason.DEVICE
             )
-            api.events.on_state_change += lambda state: self._on_state_change(state)
+            api.events.on_state_patched += lambda state: self._apply_state_patch(state)
             self._before_device_connected()
             self._api = api
         except DEVICE_UNAVAILABLE_EXCEPTIONS as ex:
@@ -308,13 +311,22 @@ class SnoozDevice:
         # ensure each call with side effects checks the connection status
         # to prevent a cancellation race condition
 
-        if self.connection_status == SnoozConnectionStatus.CONNECTING:
+        def is_connecting():
+            return self.connection_status == SnoozConnectionStatus.CONNECTED
+
+        if is_connecting():
             await api.async_authenticate_connection(bytes.fromhex(self._token))
 
-        if self.connection_status == SnoozConnectionStatus.CONNECTING:
-            await api.async_subscribe_to_notifications()
+        if is_connecting():
+            self._info = await api.async_get_info()
 
-        if self.connection_status == SnoozConnectionStatus.CONNECTING:
+        if is_connecting():
+            await api.async_subscribe_state()
+
+        if is_connecting() and self._info.supports_fan:
+            await api.async_subscribe_commands()
+
+        if is_connecting():
             self._machine.connection_ready()
 
     async def _async_create_api(self) -> SnoozDeviceApi:
@@ -322,8 +334,8 @@ class SnoozDevice:
 
         def _on_disconnect(_: BleakClientWithServiceCache) -> None:
             # don't trigger a device disconnection event when a user
-            # manually requests a disconnect
-            if not self._is_manually_disconnecting:
+            # manually requests a disconnect or we're reconnecting
+            if not self._expected_disconnect:
                 api.events.on_disconnect()
 
         client = await establish_connection(
@@ -334,7 +346,19 @@ class SnoozDevice:
             use_services_cache=True,
         )
 
-        api.set_client(client)
+        try:
+            api.load_client(client)
+        except MissingCharacteristicException as ex:
+            await client.clear_cache()
+
+            try:
+                self._expected_disconnect = True
+                await client.disconnect()
+                self._expected_disconnect = False
+            except Exception:
+                pass
+
+            raise ex
 
         return api
 
@@ -398,8 +422,9 @@ class SnoozDevice:
         self._last_dispatched_connection_status = new_status
         self.events.on_connection_status_change(new_status)
 
-    def _on_state_change(self, state: SnoozDeviceState) -> None:
-        self.events.on_state_change(state)
+    def _apply_state_patch(self, state: SnoozDeviceState) -> None:
+        if self._store.patch(state):
+            self.events.on_state_change(self.state)
 
     def _after_device_disconnected(self, e: EventData) -> None:
         reason: DisconnectionReason = e.kwargs.get("reason")
@@ -431,10 +456,7 @@ class SnoozDevice:
         disconnect_reason: DisconnectionReason = e.kwargs.get("reason")
 
         # if the disconnection was initiated from the user, don't attempt to reconnect
-        if (
-            disconnect_reason == DisconnectionReason.USER
-            or self._is_manually_disconnecting
-        ):
+        if disconnect_reason == DisconnectionReason.USER or self._expected_disconnect:
             return
 
         if self._connection_attempts >= MAX_RECONNECTION_ATTEMPTS:

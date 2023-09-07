@@ -40,7 +40,6 @@ def assert_command_success(
 
 
 @pytest.mark.asyncio
-@pytest.mark.smokey
 async def test_turn_on(
     mocker: MockerFixture, assert_command_success: AssertCommandTest
 ) -> None:

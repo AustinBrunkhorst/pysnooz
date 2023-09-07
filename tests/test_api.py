@@ -29,7 +29,6 @@ def mock_api(mock_client: MockSnoozClient) -> Generator[SnoozDeviceApi, None, No
     yield SnoozDeviceApi(mock_client)
 
 
-@pytest.mark.smokey
 def test_state_operators() -> None:
     assert SnoozDeviceState(on=True, volume=None) == SnoozDeviceState(
         on=True, volume=None
