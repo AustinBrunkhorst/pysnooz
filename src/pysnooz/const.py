@@ -1,5 +1,3 @@
-from enum import IntFlag
-
 from pysnooz.model import SnoozFirmwareVersion
 
 NEW_ISSUE_URL = (
@@ -23,11 +21,7 @@ READ_COMMAND_CHARACTERISTIC = "f0499b1b-33ab-4df8-a6f2-2484a2ad1451"
 
 SNOOZ_ADVERTISEMENT_LENGTH = 9
 
-
-class SnoozAdvertisementFlags(IntFlag):
-    PAIRING_ENABLED = 0x01
-
-
+FIRMWARE_PAIRING_FLAGS = 0x01
 FIRMWARE_VERSION_BY_FLAGS = {
     0x04: SnoozFirmwareVersion.V2,
     0x08: SnoozFirmwareVersion.V3,

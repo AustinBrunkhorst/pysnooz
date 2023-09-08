@@ -1,4 +1,8 @@
-from .advertisement import SnoozAdvertisementData
+from .advertisement import (
+    SnoozAdvertisementData,
+    get_device_display_name,
+    parse_snooz_advertisement,
+)
 from .commands import (
     SnoozCommandResultStatus,
     get_device_info,
@@ -12,18 +16,28 @@ from .commands import (
     turn_on,
 )
 from .device import SnoozCommandData, SnoozDevice
-from .model import SnoozDeviceModel, SnoozDeviceState, UnknownSnoozState
+from .model import (
+    SnoozDeviceCharacteristicData,
+    SnoozDeviceModel,
+    SnoozDeviceState,
+    SnoozFirmwareVersion,
+    UnknownSnoozState,
+)
 
 __version__ = "0.8.6"
 
 __all__ = [
     "SnoozDeviceModel",
+    "SnoozFirmwareVersion",
     "SnoozDevice",
     "SnoozDeviceState",
+    "SnoozDeviceCharacteristicData",
     "UnknownSnoozState",
     "SnoozCommandData",
     "SnoozCommandResultStatus",
     "SnoozAdvertisementData",
+    "parse_snooz_advertisement",
+    "get_device_display_name",
     "get_device_info",
     "turn_on",
     "turn_off",

@@ -5,15 +5,16 @@ from bluetooth_sensor_state_data import BluetoothServiceInfo
 from pysnooz.advertisement import (
     get_device_display_name,
     get_device_model,
+    parse_firmware_flags,
     parse_snooz_advertisement,
 )
 from pysnooz.api import READ_STATE_CHARACTERISTIC, WRITE_STATE_CHARACTERISTIC
 from pysnooz.const import (
+    FIRMWARE_PAIRING_FLAGS,
     FIRMWARE_VERSION_BY_FLAGS,
     READ_COMMAND_CHARACTERISTIC,
     SNOOZ_ADVERTISEMENT_LENGTH,
     SUPPORTED_FIRMWARE_VERSIONS,
-    SnoozAdvertisementFlags,
 )
 from pysnooz.model import SnoozDeviceModel, SnoozFirmwareVersion
 
@@ -138,6 +139,21 @@ def firmware_version(request: pytest.FixtureRequest) -> SnoozFirmwareVersion:
     return request.param
 
 
+def test_parse_flags() -> None:
+    assert parse_firmware_flags(0xFF) is None
+
+    for flags in FIRMWARE_VERSION_BY_FLAGS:
+        parsed = parse_firmware_flags(flags)
+        assert parsed is not None
+        assert parsed.firmware_version == FIRMWARE_VERSION_BY_FLAGS[flags]
+        assert parsed.is_pairing is False
+
+        parsed = parse_firmware_flags(flags | FIRMWARE_PAIRING_FLAGS)
+        assert parsed is not None
+        assert parsed.firmware_version == FIRMWARE_VERSION_BY_FLAGS[flags]
+        assert parsed.is_pairing is True
+
+
 def test_supported_firmware_version(firmware_version: SnoozFirmwareVersion) -> None:
     password = bytes([0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0xFA, 0xFB])
 
@@ -168,7 +184,7 @@ def test_supported_firmware_version(firmware_version: SnoozFirmwareVersion) -> N
 
 def _make_advertisement(flags: int, password: bytes | None) -> BluetoothServiceInfo:
     if password is not None:
-        flags |= SnoozAdvertisementFlags.PAIRING_ENABLED
+        flags |= FIRMWARE_PAIRING_FLAGS
 
     return BluetoothServiceInfo(
         name="Snooz-ABCD",
