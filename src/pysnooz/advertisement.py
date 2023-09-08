@@ -1,17 +1,17 @@
 from __future__ import annotations
+
 import logging
 
 from home_assistant_bluetooth import BluetoothServiceInfo
+
 from pysnooz.const import (
     FIRMWARE_VERSION_BY_FLAGS,
-    SUPPORTED_MODEL_NAMES,
     MODEL_NAME_BREEZ,
     SNOOZ_ADVERTISEMENT_LENGTH,
+    SUPPORTED_MODEL_NAMES,
     SnoozAdvertisementFlags,
 )
-
 from pysnooz.model import SnoozAdvertisementData, SnoozDeviceModel, SnoozFirmwareVersion
-
 
 _LOGGER = logging.getLogger(__name__)
 

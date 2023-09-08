@@ -1,6 +1,5 @@
+from dataclasses import dataclass
 from enum import IntEnum
-from typing import Any
-from attr import dataclass
 
 
 class SnoozDeviceModel(IntEnum):
@@ -57,22 +56,11 @@ class SnoozDeviceState:
     volume: int | None = None
 
     # Breez specific
-    fan_on: int | None = None
+    fan_on: bool | None = None
     fan_speed: int | None = None
     fan_auto_enabled: bool | None = None
     temperature: float | None = None
     target_temperature: int | None = None
-
-    def __eq__(self, other: Any) -> bool:
-        return (
-            self.on == other.on
-            and self.volume == other.volume
-            and self.fan_on == other.fan_on
-            and self.fan_speed == other.fan_speed
-            and self.fan_auto_enabled == other.fan_auto_enabled
-            and self.temperature == other.temperature
-            and self.target_temperature == other.target_temperature
-        )
 
     def __repr__(self) -> str:
         if self == UnknownSnoozState:

@@ -1,8 +1,8 @@
 """Utilities for integration testing Snooz devices."""
 
 from __future__ import annotations
-import struct
 
+import struct
 from typing import Any, Awaitable, Callable
 from unittest.mock import MagicMock
 
@@ -10,12 +10,12 @@ from bleak import BleakClient, BLEDevice
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.service import BleakGATTServiceCollection
 from bleak_retry_connector import BleakClientWithServiceCache
+from transitions import EventData
 
-from pysnooz.device import DisconnectionReason, SnoozDevice
 from pysnooz.api import (
+    READ_COMMAND_CHARACTERISTIC,
     READ_STATE_CHARACTERISTIC,
     WRITE_STATE_CHARACTERISTIC,
-    READ_COMMAND_CHARACTERISTIC,
     Command,
     ResponseCommand,
     SnoozDeviceApi,
@@ -27,6 +27,7 @@ from pysnooz.const import (
     MODEL_NUMBER_CHARACTERISTIC,
     SOFTWARE_REVISION_CHARACTERISTIC,
 )
+from pysnooz.device import DisconnectionReason, SnoozDevice
 from pysnooz.model import SnoozAdvertisementData, SnoozDeviceModel, SnoozDeviceState
 
 
@@ -40,13 +41,13 @@ class MockSnoozDevice(SnoozDevice):
         initial_state: SnoozDeviceState = SnoozDeviceState(),
     ) -> None:
         """Create a mock snooz device that does not make any bluetooth calls."""
-        super().__init__(address_or_ble_device, "")
+        super().__init__(address_or_ble_device, adv_data)
 
         def _on_disconnected(_: BleakClient) -> None:
             if self._api is not None:
                 self._api.events.on_disconnect()
 
-        self.state = initial_state
+        self._store.current = initial_state
         self._mock_client = MockSnoozClient(
             address_or_ble_device, adv_data.model, _on_disconnected
         )
@@ -69,8 +70,8 @@ class MockSnoozDevice(SnoozDevice):
         """Trigger a new temperature update."""
         self._mock_client.trigger_temperature(temp)
 
-    def _on_device_disconnected(self, e) -> None:
-        if self._is_manually_disconnecting:
+    def _on_device_disconnected(self, e: EventData) -> None:
+        if self._expected_disconnect:
             e.kwargs.set("reason", DisconnectionReason.USER)
         return super()._on_device_disconnected(e)
 
@@ -224,31 +225,30 @@ class MockSnoozClient(BleakClientWithServiceCache):
 
         command = data[0]
 
-        match command:
-            case Command.PASSWORD:
-                self._has_set_password = True
-                return
-            case Command.REQUEST_OTHER_SETTINGS:
-                self._send_response_command(
-                    ResponseCommand.SEND_OTHER_SETTINGS,
-                    pack_other_settings(self._state),
-                )
+        if command == Command.PASSWORD:
+            self._has_set_password = True
+            return
+        elif command == Command.REQUEST_OTHER_SETTINGS:
+            self._send_response_command(
+                ResponseCommand.SEND_OTHER_SETTINGS,
+                pack_other_settings(self._state),
+            )
 
-                return
-            case Command.MOTOR_ENABLED:
-                self._state.on = unpack_bool(data[1])
-            case Command.MOTOR_SPEED:
-                self._state.volume = max(0, min(100, int(data[1])))
-            case Command.FAN_ENABLED:
-                self._state.fan_on = unpack_bool(data[1])
-            case Command.FAN_SPEED:
-                self._state.fan_speed = max(0, min(100, int(data[1])))
-            case Command.AUTO_TEMP_ENABLED:
-                self._state.fan_auto_enabled = unpack_bool(data[1])
-            case Command.AUTO_TEMP_THRESHOLD:
-                self._state.target_temperature = max(0, data[1])
-            case _:
-                raise Exception(f"Unexpected command ID: {command} in {data.hex('-')}")
+            return
+        elif command == Command.MOTOR_ENABLED:
+            self._state.on = unpack_bool(data[1])
+        elif command == Command.MOTOR_SPEED:
+            self._state.volume = max(0, min(100, int(data[1])))
+        elif command == Command.FAN_ENABLED:
+            self._state.fan_on = unpack_bool(data[1])
+        elif command == Command.FAN_SPEED:
+            self._state.fan_speed = max(0, min(100, int(data[1])))
+        elif command == Command.AUTO_TEMP_ENABLED:
+            self._state.fan_auto_enabled = unpack_bool(data[1])
+        elif command == Command.AUTO_TEMP_THRESHOLD:
+            self._state.target_temperature = max(0, data[1])
+        else:
+            raise Exception(f"Unexpected command ID: {command} in {data.hex('-')}")
 
         self._send_state_update()
 
@@ -260,9 +260,7 @@ class MockSnoozClient(BleakClientWithServiceCache):
     async def start_notify(
         self,
         char_specifier: BleakGATTCharacteristic,
-        callback: Callable[
-            [BleakGATTCharacteristic, bytearray], None | Awaitable[None]
-        ],
+        callback: CharNotifyCallback | None,
         **kwargs: Any,
     ) -> None:
         uuid = char_specifier.uuid
@@ -275,7 +273,7 @@ class MockSnoozClient(BleakClientWithServiceCache):
             raise Exception(f"Unexpected notification characteristic: {uuid}")
 
     async def stop_notify(self, char_specifier: BleakGATTCharacteristic) -> None:
-        self.start_notify(char_specifier, None)
+        await self.start_notify(char_specifier, None)
 
     def _send_state_update(self) -> None:
         if self._state_char_callback is None:
@@ -288,7 +286,7 @@ class MockSnoozClient(BleakClientWithServiceCache):
         if self._command_char_callback is None:
             return
 
-        self._command_char_callback(None, bytes([command.value]) + payload)
+        self._command_char_callback(None, bytearray([command.value]) + payload)
 
     def _get_state_char_data(self) -> bytearray:
         return pack_state(self._state)
@@ -333,7 +331,7 @@ CHAR_VALUES_BY_MODEL = {
 
 
 def pack_other_settings(state: SnoozDeviceState) -> bytearray:
-    return bytes([0] * 10) + bytes(
+    return bytearray([0] * 10) + bytearray(
         [pack_bool(state.fan_auto_enabled), state.target_temperature or 0x00]
     )
 

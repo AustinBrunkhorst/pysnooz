@@ -28,9 +28,7 @@ from pysnooz.commands import (
     create_command_processor,
     get_device_info,
 )
-from pysnooz.const import (
-    UNEXPECTED_ERROR_LOG_MESSAGE,
-)
+from pysnooz.const import UNEXPECTED_ERROR_LOG_MESSAGE
 from pysnooz.model import (
     SnoozAdvertisementData,
     SnoozDeviceCharacteristicData,
@@ -322,6 +320,8 @@ class SnoozDevice:
         # to prevent a cancellation race condition
 
         if self.connection_status == SnoozConnectionStatus.CONNECTING:
+            if self._adv_data.password is None:
+                raise ValueError("Missing device password")
             await api.async_authenticate_connection(self._adv_data.password)
 
         if self.connection_status == SnoozConnectionStatus.CONNECTING:

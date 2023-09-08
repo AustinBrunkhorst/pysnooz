@@ -1,8 +1,8 @@
 from .advertisement import SnoozAdvertisementData
 from .commands import (
     SnoozCommandResultStatus,
-    set_auto_temp_enabled,
     get_device_info,
+    set_auto_temp_enabled,
     set_fan_speed,
     set_temp_target,
     set_volume,
@@ -11,8 +11,8 @@ from .commands import (
     turn_off,
     turn_on,
 )
-from .model import SnoozDeviceModel, SnoozDeviceState, UnknownSnoozState
 from .device import SnoozCommandData, SnoozDevice
+from .model import SnoozDeviceModel, SnoozDeviceState, UnknownSnoozState
 
 __version__ = "0.8.6"
 
