@@ -40,8 +40,8 @@ from pysnooz.device import (
 from pysnooz.model import (
     SnoozAdvertisementData,
     SnoozDeviceModel,
-    SnoozFirmwareVersion,
     SnoozDeviceState,
+    SnoozFirmwareVersion,
 )
 from pysnooz.testing import MockSnoozClient
 
@@ -151,10 +151,12 @@ def snooz(
     mock_connect.side_effect = get_connected_client
 
     def trigger_disconnect(target: SnoozDevice) -> None:
+        assert target._api is not None
         assert isinstance(target._api._client, MockSnoozClient)
         target._api._client.trigger_disconnect()
 
     def trigger_temperature(target: SnoozDevice, temp: float) -> None:
+        assert target._api is not None
         assert isinstance(target._api._client, MockSnoozClient)
         target._api._client.trigger_temperature(temp)
 
@@ -377,6 +379,7 @@ async def test_device_info(mocker: MockerFixture, snooz: SnoozTestFixture) -> No
     device = snooz.create_device()
 
     info = await device.async_get_info()
+    assert info is not None
     assert info.firmware is not None
     assert info.hardware is not None
     assert info.manufacturer is not None
@@ -392,6 +395,7 @@ async def test_device_info_breez(
     device = snooz.create_device()
 
     info = await device.async_get_info()
+    assert info is not None
     assert info.firmware is not None
     assert info.hardware is not None
     assert info.manufacturer is not None

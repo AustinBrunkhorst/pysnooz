@@ -6,13 +6,9 @@ from unittest.mock import MagicMock, call
 
 import pytest
 from pytest_mock import MockerFixture
-from pysnooz import get_device_info
 
-from pysnooz.api import (
-    MIN_DEVICE_VOLUME,
-    MIN_FAN_SPEED,
-    SnoozDeviceApi,
-)
+from pysnooz import get_device_info
+from pysnooz.api import MIN_DEVICE_VOLUME, MIN_FAN_SPEED, SnoozDeviceApi
 from pysnooz.commands import (
     CommandProcessorState,
     SnoozCommandData,

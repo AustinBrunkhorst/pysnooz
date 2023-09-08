@@ -1,6 +1,6 @@
 # mypy: warn_unreachable=False
-from bluetooth_sensor_state_data import BluetoothServiceInfo
 import pytest
+from bluetooth_sensor_state_data import BluetoothServiceInfo
 
 from pysnooz.advertisement import (
     get_device_display_name,
@@ -134,11 +134,11 @@ def test_unsupported():
 
 
 @pytest.fixture(params=SUPPORTED_FIRMWARE_VERSIONS)
-def firmware_version(request: SnoozFirmwareVersion):
-    yield request.param
+def firmware_version(request: pytest.FixtureRequest) -> SnoozFirmwareVersion:
+    return request.param
 
 
-def test_supported_firmware_version(firmware_version: SnoozFirmwareVersion):
+def test_supported_firmware_version(firmware_version: SnoozFirmwareVersion) -> None:
     password = bytes([0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0xFA, 0xFB])
 
     flags = next(

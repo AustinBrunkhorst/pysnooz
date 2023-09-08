@@ -6,7 +6,7 @@ from asyncio import AbstractEventLoop, CancelledError, Future, Lock, Task
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum, IntEnum
-from typing import Callable
+from typing import Any, Callable
 
 from transitions import Machine, State
 
@@ -243,7 +243,7 @@ class SnoozCommandProcessor(ABC):
             )
             self.on_unhandled_exception()
 
-    def _before_execution_start(self, **kwargs) -> None:
+    def _before_execution_start(self, **kwargs: Any) -> None:
         _LOGGER.debug(self._(f"Executing {self.command}"))
 
     @abstractmethod
@@ -279,12 +279,12 @@ class SnoozCommandProcessor(ABC):
         self._result_status = status
         self._cancel_active_tasks()
 
-    def _on_disconnect(self, **kwargs) -> None:
+    def _on_disconnect(self, **kwargs: Any) -> None:
         self.last_disconnect_time = datetime.now()
         self._total_disconnects += 1
         self._cancel_active_tasks()
 
-    def _on_complete(self, **kwargs) -> None:
+    def _on_complete(self, **kwargs: Any) -> None:
         duration = datetime.now() - self.start_time
 
         message = f"Completed {self.command} ({self._result_status.name}) in {duration}"
@@ -319,7 +319,6 @@ def create_command_processor(
     else:
         cls = WriteDeviceStateCommand
 
-    assert cls is not None
     result = loop.create_future()
 
     return cls(
@@ -356,6 +355,7 @@ class WriteDeviceStateCommand(SnoozCommandProcessor):
 
 class DeviceFeatureControls(ABC):
     @property
+    @abstractmethod
     def min_percent(self) -> int:
         pass
 
@@ -376,11 +376,11 @@ class DeviceFeatureControls(ABC):
         pass
 
     @abstractmethod
-    async def async_set_power(self, api: SnoozDeviceApi) -> None:
+    async def async_set_power(self, api: SnoozDeviceApi, on: bool) -> None:
         pass
 
     @abstractmethod
-    async def async_set_percent(self, api: SnoozDeviceApi) -> None:
+    async def async_set_percent(self, api: SnoozDeviceApi, volume: int) -> None:
         pass
 
 
@@ -504,14 +504,11 @@ class TransitionedCommand(SnoozCommandProcessor):
                     and command_percent != feature.get_percent(current_state)
                 ):
                     await feature.async_set_percent(api, command_percent)
-                elif (
-                    command_percent is None
-                    and not command_power
-                    and feature.get_percent(self._starting_state) is not None
-                ):
-                    await feature.async_set_percent(
-                        api, feature.get_percent(self._starting_state)
-                    )
+                elif command_percent is None and not command_power:
+                    starting_percent = feature.get_percent(self._starting_state)
+
+                    if starting_percent is not None:
+                        await feature.async_set_percent(api, starting_percent)
 
             return
 
@@ -520,6 +517,7 @@ class TransitionedCommand(SnoozCommandProcessor):
         for feature in self._features:
             current_power = feature.get_power(current_state)
             current_percent = feature.get_percent(current_state)
+            command_percent = feature.get_command_percent(self.command)
             command_power = feature.get_command_power(self.command)
 
             # To prevent a delay in the transition, set it to the minimum instead of 0
@@ -529,7 +527,7 @@ class TransitionedCommand(SnoozCommandProcessor):
                 else current_percent
             )
             end_percent = (
-                (feature.get_percent(self.command) or current_percent)
+                (command_percent or current_percent)
                 if command_power
                 else feature.min_percent
             )

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-import struct
 import logging
+import struct
 from asyncio import Lock
+from dataclasses import dataclass
 from enum import IntEnum
 from typing import Callable
-from attr import dataclass
 
 from bleak import BleakClient, BleakGATTCharacteristic
 from bleak.exc import BleakDBusError
@@ -17,8 +17,8 @@ from .const import (
     HARDWARE_REVISION_CHARACTERISTIC,
     MANUFACTURER_NAME_CHARACTERISTIC,
     MODEL_NUMBER_CHARACTERISTIC,
-    READ_STATE_CHARACTERISTIC,
     READ_COMMAND_CHARACTERISTIC,
+    READ_STATE_CHARACTERISTIC,
     SOFTWARE_REVISION_CHARACTERISTIC,
     WRITE_STATE_CHARACTERISTIC,
 )
@@ -98,7 +98,7 @@ class ResponseCommand(IntEnum):
 class MissingCharacteristicError(Exception):
     """Raised when a required characteristic is missing on a client"""
 
-    def __init__(self, uuid: str = None) -> None:
+    def __init__(self, uuid: str | None = None) -> None:
         super().__init__(f"Missing characteristic {uuid}")
 
 
@@ -159,7 +159,7 @@ class SnoozDeviceApi:
         for char in self._required_chars:
             char.get(client)
 
-    def _require_client(self, require_connection=True) -> BleakClient:
+    def _require_client(self, require_connection: bool = True) -> BleakClient:
         if self._client is None:
             raise AssertionError("client was None")
 
@@ -180,7 +180,7 @@ class SnoozDeviceApi:
         client = self._require_client(False)
         if not client.is_connected:
             return None
-        string_props = []
+        string_props: list[str | None] = []
         for char_ref in self._info_chars:
             char = char_ref.get(client)
             if not char:
@@ -189,7 +189,7 @@ class SnoozDeviceApi:
                 value = (await client.read_gatt_char(char)).decode().split("\0")[0]
             string_props.append(value)
 
-        return SnoozDeviceCharacteristicData(*string_props)
+        return SnoozDeviceCharacteristicData(*string_props)  # type: ignore
 
     async def async_authenticate_connection(self, password: str) -> None:
         await self._async_write_state(
@@ -243,7 +243,7 @@ class SnoozDeviceApi:
         if not client.is_connected:
             return
 
-        def on_state_change(_, payload: bytes) -> None:
+        def on_state_change(_: BleakClient, payload: bytes) -> None:
             self.events.on_state_patched(unpack_state(payload))
 
         await client.start_notify(
@@ -251,7 +251,7 @@ class SnoozDeviceApi:
             on_state_change,
         )
 
-        def on_response_command(_, data: bytes) -> None:
+        def on_response_command(_: BleakClient, data: bytes) -> None:
             command = ResponseCommand(data[0])
             payload = data[1:]
 
@@ -264,7 +264,7 @@ class SnoozDeviceApi:
     async def async_request_other_settings(self) -> None:
         await self._async_write_state(bytes([Command.REQUEST_OTHER_SETTINGS]))
 
-    async def _async_write_state(self, data: bytes | None = None) -> None:
+    async def _async_write_state(self, data: bytes) -> None:
         client = self._require_client(False)
 
         attempts = 0
@@ -303,17 +303,14 @@ class SnoozDeviceApi:
 def unpack_response_command(command: ResponseCommand, data: bytes) -> SnoozDeviceState:
     result = SnoozDeviceState()
 
-    match command:
-        case ResponseCommand.SEND_OTHER_SETTINGS:
-            (auto_enabled, target_temperature) = struct.unpack(
-                "<xxxxxxxxxxBB", data[0:12]
-            )
+    if command == ResponseCommand.SEND_OTHER_SETTINGS:
+        (auto_enabled, target_temperature) = struct.unpack("<xxxxxxxxxxBB", data[0:12])
 
-            result.fan_auto_enabled = bool(auto_enabled)
-            result.target_temperature = target_temperature
-        case ResponseCommand.TEMPERATURE:
-            [temp] = struct.unpack("<f", data[0:4])
-            result.temperature = round(temp, 2)
+        result.fan_auto_enabled = bool(auto_enabled)
+        result.target_temperature = target_temperature
+    if command == ResponseCommand.TEMPERATURE:
+        [temp] = struct.unpack("<f", data[0:4])
+        result.temperature = round(temp, 2)
 
     return result
 
