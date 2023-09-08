@@ -13,19 +13,34 @@ from bleak import BleakClient, BleakGATTServiceCollection
 from bleak.backends.device import BLEDevice
 from pytest_mock import MockerFixture
 
-from pysnooz.api import SnoozDeviceApi
+from pysnooz.api import (
+    CharacteristicReference,
+    MissingCharacteristicError,
+    SnoozDeviceApi,
+)
 from pysnooz.commands import (
     SnoozCommandData,
     SnoozCommandResultStatus,
+    set_auto_temp_enabled,
+    set_fan_speed,
+    set_temp_target,
     set_volume,
+    turn_fan_off,
+    turn_fan_on,
     turn_off,
     turn_on,
 )
+from pysnooz.const import MODEL_NAME_BREEZ, MODEL_NAME_SNOOZ
 from pysnooz.device import (
     DEVICE_UNAVAILABLE_EXCEPTIONS,
     MAX_RECONNECTION_ATTEMPTS,
     SnoozConnectionStatus,
     SnoozDevice,
+)
+from pysnooz.model import (
+    SnoozAdvertisementData,
+    SnoozDeviceModel,
+    SnoozFirmwareVersion,
     SnoozDeviceState,
 )
 from pysnooz.testing import MockSnoozClient
@@ -34,20 +49,24 @@ from pysnooz.testing import MockSnoozClient
 class SnoozTestFixture:
     def __init__(
         self,
+        model: SnoozDeviceModel,
         ble_device: BLEDevice,
-        token: str,
+        adv_data: SnoozAdvertisementData,
         loop: AbstractEventLoop,
         mock_connect: MagicMock,
         trigger_disconnect: Callable[[SnoozDevice], None],
+        trigger_temperature: Callable[[SnoozDevice, float], None],
     ):
+        self.model = model
         self.ble_device = ble_device
-        self.token = token
+        self.adv_data = adv_data
         self.loop = loop
         self.mock_connect = mock_connect
         self.trigger_disconnect = trigger_disconnect
+        self.trigger_temperature = trigger_temperature
 
     def create_device(self) -> SnoozDevice:
-        return SnoozDevice(self.ble_device, self.token, self.loop)
+        return SnoozDevice(self.ble_device, self.adv_data, self.loop)
 
     def mock_connection_fails(self) -> None:
         self.mock_connect.side_effect = DEVICE_UNAVAILABLE_EXCEPTIONS[0](
@@ -93,9 +112,27 @@ class SnoozTestFixture:
 
 
 @pytest.fixture(scope="function")
-def snooz(mocker: MockerFixture, event_loop: AbstractEventLoop) -> SnoozTestFixture:
-    device = BLEDevice("AA:BB:CC:DD:EE:FF", "Snooz-EEFF", [], 0)
-    token = "AABBCCDDEEFF"
+def snooz(
+    request: pytest.FixtureRequest, mocker: MockerFixture, event_loop: AbstractEventLoop
+) -> SnoozTestFixture:
+    model = SnoozDeviceModel.ORIGINAL
+
+    model_marker = request.node.get_closest_marker("model")
+    if model_marker is not None:
+        model = model_marker.args[0]
+
+    model_name = (
+        MODEL_NAME_BREEZ if model == SnoozDeviceModel.BREEZ else MODEL_NAME_SNOOZ
+    )
+    device = BLEDevice("AA:BB:CC:DD:EE:FF", f"{model_name}-EEFF", [], 0)
+    password = "AABBCCDDEEFF"
+    adv_data = SnoozAdvertisementData(
+        model,
+        SnoozFirmwareVersion.V2
+        if model == SnoozDeviceModel.ORIGINAL
+        else SnoozFirmwareVersion.V6,
+        password,
+    )
 
     def get_connected_client(
         client_class: type[BleakClient],
@@ -108,28 +145,37 @@ def snooz(mocker: MockerFixture, event_loop: AbstractEventLoop) -> SnoozTestFixt
         use_services_cache: bool = False,
         **kwargs: Any,
     ) -> MockSnoozClient:
-        return MockSnoozClient(device, disconnected_callback)
+        return MockSnoozClient(device, model, disconnected_callback)
 
     mock_connect = mocker.patch("pysnooz.device.establish_connection", autospec=True)
     mock_connect.side_effect = get_connected_client
 
     def trigger_disconnect(target: SnoozDevice) -> None:
-        # this is hacky, but unfortunately Bleak's requirements
-        # for passing the disconnect callback in the constructor brought us here.
-        target._api._client.trigger_disconnect()  # type: ignore
+        assert isinstance(target._api._client, MockSnoozClient)
+        target._api._client.trigger_disconnect()
+
+    def trigger_temperature(target: SnoozDevice, temp: float) -> None:
+        assert isinstance(target._api._client, MockSnoozClient)
+        target._api._client.trigger_temperature(temp)
 
     return SnoozTestFixture(
+        model=model,
         ble_device=device,
-        token=token,
+        adv_data=adv_data,
         loop=event_loop,
         mock_connect=mock_connect,
         trigger_disconnect=trigger_disconnect,
+        trigger_temperature=trigger_temperature,
     )
+
+
+def breez() -> SnoozTestFixture:
+    return snooz(SnoozDeviceModel.BREEZ)
 
 
 def test_display_name(snooz: SnoozTestFixture) -> None:
     device = snooz.create_device()
-    assert re.search(r"^Snooz [A-Z0-9]{4}$", device.display_name) is not None
+    assert re.search(r"^(Snooz|Breez) [A-Z0-9]{4}$", device.display_name) is not None
 
 
 @pytest.mark.asyncio
@@ -196,6 +242,161 @@ async def test_basic_commands(mocker: MockerFixture, snooz: SnoozTestFixture) ->
 
     await snooz.assert_command_success(device, set_volume(15))
     subscription_callback.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.model(SnoozDeviceModel.BREEZ)
+async def test_breez_commands(mocker: MockerFixture, snooz: SnoozTestFixture) -> None:
+    on_connection_status_change = mocker.stub()
+    on_state_change = mocker.stub()
+    subscription_callback = mocker.stub()
+
+    device = snooz.create_device()
+
+    device.events.on_state_change += on_state_change
+    device.events.on_connection_status_change += on_connection_status_change
+
+    unsubscribe = device.subscribe_to_state_change(subscription_callback)
+
+    # events should not occur until the device is connected
+    on_connection_status_change.assert_not_called()
+    on_state_change.assert_not_called()
+    subscription_callback.assert_not_called()
+
+    await snooz.assert_command_success(device, turn_fan_on(speed=25))
+    assert device.state.fan_on is True
+    assert device.state.fan_speed == 25
+    assert on_connection_status_change.mock_calls == (
+        [call(SnoozConnectionStatus.CONNECTING), call(SnoozConnectionStatus.CONNECTED)]
+    )
+    on_connection_status_change.reset_mock()
+
+    # for api simplicity, you can set the fan speed and power state in one command,
+    # but it translates to two ble char writes
+    assert on_state_change.call_count == 2
+    on_state_change.assert_has_calls(
+        [call(SnoozDeviceState(on=False, volume=10, fan_on=True, fan_speed=25))]
+    )
+    on_state_change.reset_mock()
+
+    # two connection status changes, two state changes
+    assert subscription_callback.call_count == 4
+    subscription_callback.reset_mock()
+
+    await snooz.assert_command_success(device, turn_fan_off())
+    assert device.state.fan_on is False
+    on_state_change.assert_called_once_with(
+        SnoozDeviceState(on=False, volume=10, fan_on=False, fan_speed=25)
+    )
+    on_state_change.reset_mock()
+    subscription_callback.assert_called_once()
+    subscription_callback.reset_mock()
+
+    await snooz.assert_command_success(device, set_fan_speed(36))
+    assert device.state.fan_speed == 36
+    on_state_change.assert_called_once_with(
+        SnoozDeviceState(on=False, volume=10, fan_on=False, fan_speed=36)
+    )
+    on_state_change.reset_mock()
+    subscription_callback.assert_called_once()
+    subscription_callback.reset_mock()
+
+    await snooz.assert_command_success(device, set_auto_temp_enabled(True))
+    assert device.state.fan_auto_enabled is True
+    on_state_change.assert_called_once_with(
+        SnoozDeviceState(
+            on=False,
+            volume=10,
+            fan_on=False,
+            fan_speed=36,
+            fan_auto_enabled=True,
+            target_temperature=0,
+        )
+    )
+    on_state_change.reset_mock()
+    subscription_callback.assert_called_once()
+    subscription_callback.reset_mock()
+
+    await snooz.assert_command_success(device, set_temp_target(46))
+    assert device.state.target_temperature == 46
+    on_state_change.assert_called_once_with(
+        SnoozDeviceState(
+            on=False,
+            volume=10,
+            fan_on=False,
+            fan_speed=36,
+            fan_auto_enabled=True,
+            target_temperature=46,
+        )
+    )
+    on_state_change.reset_mock()
+    subscription_callback.assert_called_once()
+    subscription_callback.reset_mock()
+
+    snooz.trigger_temperature(device, 75)
+    assert device.state.temperature == 75
+    on_state_change.assert_called_once_with(
+        SnoozDeviceState(
+            on=False,
+            volume=10,
+            fan_on=False,
+            fan_speed=36,
+            fan_auto_enabled=True,
+            target_temperature=46,
+            temperature=75,
+        )
+    )
+    on_state_change.reset_mock()
+    subscription_callback.assert_called_once()
+    subscription_callback.reset_mock()
+
+    # no other status changes should have occurred
+    on_connection_status_change.assert_not_called()
+
+    # when unsubscribe is called, the callback should stop being called
+    unsubscribe()
+
+    await snooz.assert_command_success(device, turn_fan_on(99))
+    subscription_callback.assert_not_called()
+
+    await snooz.assert_command_success(device, turn_fan_off())
+    subscription_callback.assert_not_called()
+
+    await snooz.assert_command_success(device, set_fan_speed(15))
+    subscription_callback.assert_not_called()
+
+    await snooz.assert_command_success(device, set_auto_temp_enabled(True))
+    subscription_callback.assert_not_called()
+
+    await snooz.assert_command_success(device, set_temp_target(64))
+    subscription_callback.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_device_info(mocker: MockerFixture, snooz: SnoozTestFixture) -> None:
+    device = snooz.create_device()
+
+    info = await device.async_get_info()
+    assert info.firmware is not None
+    assert info.hardware is not None
+    assert info.manufacturer is not None
+    assert info.model is not None
+    assert info.software is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.model(SnoozDeviceModel.BREEZ)
+async def test_device_info_breez(
+    mocker: MockerFixture, snooz: SnoozTestFixture
+) -> None:
+    device = snooz.create_device()
+
+    info = await device.async_get_info()
+    assert info.firmware is not None
+    assert info.hardware is not None
+    assert info.manufacturer is not None
+    assert info.model is not None
+    assert info.software is not None
 
 
 @pytest.mark.asyncio
@@ -561,6 +762,62 @@ async def test_disconnect_before_ready_then_reconnects(
             call(SnoozConnectionStatus.CONNECTED),
         ]
     )
+    assert device.is_connected
+    assert device.state.on
+    assert device.state.volume == 26
+    on_state_change.assert_called_with(SnoozDeviceState(on=True, volume=26))
+
+
+@pytest.mark.asyncio
+async def test_missing_characteristic_during_connection(
+    mocker: MockerFixture, snooz: SnoozTestFixture
+) -> None:
+    original_get_char = CharacteristicReference.get
+    mock_get_char = mocker.patch(
+        "pysnooz.api.CharacteristicReference.get",
+        autospec=True,
+    )
+    mock_clear_cache = mocker.patch(
+        "pysnooz.testing.MockSnoozClient.clear_cache", autospec=True
+    )
+    mock_discconect = mocker.patch(
+        "pysnooz.testing.MockSnoozClient.disconnect", autospec=True
+    )
+
+    missing_count = 0
+    times_to_be_missing = 2
+
+    def get_missing_char(ref: CharacteristicReference, client: BleakClient) -> None:
+        nonlocal missing_count, times_to_be_missing
+        if not ref.required or missing_count >= times_to_be_missing:
+            return original_get_char(ref, client)
+        missing_count = missing_count + 1
+        raise MissingCharacteristicError(ref.uuid)
+
+    mock_get_char.side_effect = get_missing_char
+
+    on_connection_change = mocker.stub()
+    on_state_change = mocker.stub()
+
+    device = snooz.create_device()
+
+    device.events.on_connection_status_change += on_connection_change
+    device.events.on_state_change += on_state_change
+
+    await snooz.assert_command_success(device, turn_on(volume=26))
+    assert on_connection_change.mock_calls == (
+        [
+            call(SnoozConnectionStatus.CONNECTING),
+            *[
+                call(SnoozConnectionStatus.DISCONNECTED),
+                call(SnoozConnectionStatus.CONNECTING),
+            ]
+            * times_to_be_missing,
+            call(SnoozConnectionStatus.CONNECTED),
+        ]
+    )
+    assert mock_clear_cache.call_count == times_to_be_missing
+    assert mock_discconect.call_count == times_to_be_missing
     assert device.is_connected
     assert device.state.on
     assert device.state.volume == 26

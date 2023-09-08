@@ -1,75 +1,98 @@
 from __future__ import annotations
-
 import logging
 
-from bluetooth_sensor_state_data import BluetoothData
 from home_assistant_bluetooth import BluetoothServiceInfo
+from pysnooz.const import (
+    FIRMWARE_VERSION_BY_FLAGS,
+    SUPPORTED_MODEL_NAMES,
+    MODEL_NAME_BREEZ,
+    SNOOZ_ADVERTISEMENT_LENGTH,
+    SnoozAdvertisementFlags,
+)
 
-ADVERTISEMENT_TOKEN_LENGTH = 8
-TOKEN_EMPTY = bytes([0] * ADVERTISEMENT_TOKEN_LENGTH)
-TOKEN_SEQUENCE = bytes(range(1, ADVERTISEMENT_TOKEN_LENGTH + 1))
-KNOWN_DEVICE_NAMES = ["Snooz", "Breez"]
+from pysnooz.model import SnoozAdvertisementData, SnoozDeviceModel, SnoozFirmwareVersion
+
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class SnoozAdvertisementData(BluetoothData):
-    """Represents data from a SNOOZ advertisement."""
+def parse_snooz_advertisement(
+    data: BluetoothServiceInfo,
+) -> SnoozAdvertisementData | None:
+    advertisement = data.manufacturer_data.get(data.manufacturer_id)
 
-    def __init__(self) -> None:
-        super().__init__()
-        # string of hex digits stored in the device advertisement only in pairing mode
-        self.pairing_token: str | None = None
+    if advertisement is None:
+        return None
 
-        # formatted name like "Snooz AABB"
-        # where AABB is the last 4 digits of the MAC address
-        self.display_name: str | None = None
+    if len(advertisement) != SNOOZ_ADVERTISEMENT_LENGTH:
+        return None
 
-    @property
-    def is_pairing(self) -> bool:
-        """Return True if the device is in pairing mode"""
-
-        return self.pairing_token is not None
-
-    def _start_update(self, data: BluetoothServiceInfo) -> None:
-        """Update from BLE advertisement data"""
-
-        advertisement = data.manufacturer_data.get(data.manufacturer_id)
-
-        if advertisement is None:
-            return
-
-        raw_token = advertisement[1:]
-
-        if len(raw_token) != ADVERTISEMENT_TOKEN_LENGTH:
-            _LOGGER.debug(
-                f"Skipped {data.name} because token length was unexpected"
-                f" ({len(raw_token)}): {raw_token.hex('-')}"
-            )
-            return
-
-        # pairing mode is enabled if the advertisement token is
-        # all zeros or a sequence from 1-8
-        if raw_token not in (TOKEN_EMPTY, TOKEN_SEQUENCE):
-            self.pairing_token = raw_token.hex()
-
-        name = get_device_display_name(data.name, data.address)
-        self.display_name = name
-
-        self.set_title(name)
-        self.set_device_name(name)
-        self.set_device_manufacturer("SNOOZ, LLC")
-        self.set_device_type("SNOOZ White Noise Machine")
-        self.set_device_hw_version(advertisement[0])
-
-
-def get_device_display_name(local_name: str, address: str) -> str:
-    # if the advertised name doesn't have any digits, then use
-    # the last 4 from the mac address
-    supported = next(
-        (x for x in KNOWN_DEVICE_NAMES if x.lower() == local_name.lower()), None
+    flags = advertisement[0]
+    is_pairing = SnoozAdvertisementFlags.PAIRING_ENABLED in SnoozAdvertisementFlags(
+        flags
     )
-    if supported is not None:
-        return f"{supported} {address.replace(':', '')[-4:]}"
+    password = advertisement[1:].hex() if is_pairing else None
 
-    return local_name.replace("-", " ")
+    flags_without_pairing = flags & ~SnoozAdvertisementFlags.PAIRING_ENABLED
+
+    if flags_without_pairing not in FIRMWARE_VERSION_BY_FLAGS:
+        _LOGGER.debug(
+            f"Unknown device flags {flags_without_pairing:02x}"
+            f" in advertisement {advertisement}"
+        )
+        return None
+
+    firmware_version = FIRMWARE_VERSION_BY_FLAGS[flags_without_pairing]
+
+    model = get_device_model(data.name, firmware_version)
+
+    if model == SnoozDeviceModel.UNSUPPORTED:
+        _LOGGER.debug(f"{data.name} is unsupported with firmware {firmware_version}")
+        return None
+
+    return SnoozAdvertisementData(model, firmware_version, password)
+
+
+def match_known_model_name(advertised_name: str) -> str | None:
+    return next(
+        (
+            value
+            for value in SUPPORTED_MODEL_NAMES
+            if advertised_name.lower().startswith(value.lower())
+        ),
+        None,
+    )
+
+
+def get_device_model(
+    advertised_name: str, firmware: SnoozFirmwareVersion
+) -> SnoozDeviceModel:
+    known = match_known_model_name(advertised_name)
+
+    if known is None:
+        return SnoozDeviceModel.UNSUPPORTED
+
+    if firmware in [
+        SnoozFirmwareVersion.V2,
+        SnoozFirmwareVersion.V3,
+        SnoozFirmwareVersion.V4,
+        SnoozFirmwareVersion.V5,
+    ]:
+        return SnoozDeviceModel.ORIGINAL
+
+    if firmware == SnoozFirmwareVersion.V6:
+        return (
+            SnoozDeviceModel.BREEZ
+            if known == MODEL_NAME_BREEZ
+            else SnoozDeviceModel.PRO
+        )
+
+    return SnoozDeviceModel.UNSUPPORTED
+
+
+def get_device_display_name(advertised_name: str, address: str) -> str:
+    known = match_known_model_name(advertised_name)
+    if known is not None:
+        return f"{known} {address.replace(':', '')[-4:]}"
+
+    return advertised_name.replace("-", " ")

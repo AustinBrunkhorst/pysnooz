@@ -11,12 +11,7 @@ from .commands import (
     turn_off,
     turn_on,
 )
-from .const import (
-    SnoozDeviceModel,
-    SnoozDeviceInfo,
-    SnoozDeviceState,
-    UnknownSnoozState,
-)
+from .model import SnoozDeviceModel, SnoozDeviceState, UnknownSnoozState
 from .device import SnoozCommandData, SnoozDevice
 
 __version__ = "0.8.6"
@@ -26,7 +21,6 @@ __all__ = [
     "SnoozDevice",
     "SnoozDeviceState",
     "UnknownSnoozState",
-    "SnoozDeviceInfo",
     "SnoozCommandData",
     "SnoozCommandResultStatus",
     "SnoozAdvertisementData",
