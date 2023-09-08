@@ -14,7 +14,7 @@ from pysnooz.api import (
     SnoozDeviceApi,
     unpack_response_command,
 )
-from pysnooz.model import SnoozDeviceModel, SnoozDeviceState, UnknownSnoozState
+from pysnooz.model import SnoozDeviceModel, SnoozDeviceState
 from pysnooz.testing import MockSnoozClient
 
 DBUS_ERROR = BleakDBusError("org.bluez.Error", [])
@@ -197,4 +197,4 @@ def test_unpack_response_command() -> None:
     assert state.fan_auto_enabled is True
     assert state.target_temperature == target_temp
 
-    assert unpack_response_command(99, bytes([])) == SnoozDeviceState()
+    assert unpack_response_command(99, bytes([])) == SnoozDeviceState()  # type: ignore
