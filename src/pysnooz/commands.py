@@ -11,11 +11,8 @@ from typing import Callable
 from transitions import Machine, State
 
 from pysnooz.api import MIN_DEVICE_VOLUME, MIN_FAN_SPEED, SnoozDeviceApi
-from pysnooz.const import (
-    UNEXPECTED_ERROR_LOG_MESSAGE,
-    SnoozDeviceInfo,
-    SnoozDeviceState,
-)
+from pysnooz.const import UNEXPECTED_ERROR_LOG_MESSAGE
+from pysnooz.model import SnoozDeviceCharacteristicData, SnoozDeviceState
 from pysnooz.transition import Transition
 
 _LOGGER = logging.getLogger(__name__)
@@ -128,7 +125,7 @@ class SnoozCommandResultStatus(Enum):
 class SnoozCommandResult:
     status: SnoozCommandResultStatus
     duration: timedelta
-    response: SnoozDeviceInfo | None = None
+    response: SnoozDeviceCharacteristicData | None = None
 
 
 class CommandProcessorState(Enum):
@@ -250,7 +247,9 @@ class SnoozCommandProcessor(ABC):
         _LOGGER.debug(self._(f"Executing {self.command}"))
 
     @abstractmethod
-    async def _async_execute(self, api: SnoozDeviceApi) -> SnoozDeviceInfo | None:
+    async def _async_execute(
+        self, api: SnoozDeviceApi
+    ) -> SnoozDeviceCharacteristicData | None:
         pass
 
     def cancel(self) -> None:
@@ -329,7 +328,9 @@ def create_command_processor(
 
 
 class DeviceActionCommand(SnoozCommandProcessor):
-    async def _async_execute(self, api: SnoozDeviceApi) -> SnoozDeviceInfo | None:
+    async def _async_execute(
+        self, api: SnoozDeviceApi
+    ) -> SnoozDeviceCharacteristicData | None:
         if self.command.action == SnoozDeviceAction.GET_DEVICE_INFO:
             return await api.async_get_info()
 

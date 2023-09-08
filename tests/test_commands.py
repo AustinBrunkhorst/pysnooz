@@ -6,17 +6,28 @@ from unittest.mock import MagicMock, call
 
 import pytest
 from pytest_mock import MockerFixture
+from pysnooz import get_device_info
 
-from pysnooz.api import MIN_DEVICE_VOLUME, SnoozDeviceApi, SnoozDeviceState
+from pysnooz.api import (
+    MIN_DEVICE_VOLUME,
+    MIN_FAN_SPEED,
+    SnoozDeviceApi,
+)
 from pysnooz.commands import (
     CommandProcessorState,
     SnoozCommandData,
     SnoozCommandResultStatus,
     create_command_processor,
+    set_auto_temp_enabled,
+    set_fan_speed,
+    set_temp_target,
     set_volume,
+    turn_fan_off,
+    turn_fan_on,
     turn_off,
     turn_on,
 )
+from pysnooz.model import SnoozDeviceState
 
 AssertCommandTest = Callable[[MagicMock, SnoozCommandData], Awaitable[None]]
 
@@ -81,6 +92,85 @@ async def test_set_volume(
 
 
 @pytest.mark.asyncio
+async def test_turn_fan_on(
+    mocker: MockerFixture, assert_command_success: AssertCommandTest
+) -> None:
+    mock_api = mocker.MagicMock(spec=SnoozDeviceApi)
+
+    await assert_command_success(mock_api, turn_fan_on())
+    mock_api.async_set_fan_power.assert_called_once_with(True)
+    mock_api.async_set_fan_speed.assert_not_called()
+
+    mock_api.reset_mock()
+
+    await assert_command_success(mock_api, turn_fan_on(speed=30))
+    mock_api.async_set_fan_power.assert_called_once_with(True)
+    mock_api.async_set_fan_speed.assert_called_once_with(30)
+
+
+@pytest.mark.asyncio
+async def test_turn_fan_off(
+    mocker: MockerFixture,
+    assert_command_success: AssertCommandTest,
+) -> None:
+    mock_api = mocker.MagicMock(spec=SnoozDeviceApi)
+
+    await assert_command_success(mock_api, turn_fan_off())
+    mock_api.async_set_fan_power.assert_called_once_with(False)
+    mock_api.async_set_fan_speed.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_set_fan_speed(
+    mocker: MockerFixture,
+    assert_command_success: AssertCommandTest,
+) -> None:
+    mock_api = mocker.MagicMock(spec=SnoozDeviceApi)
+
+    await assert_command_success(mock_api, set_fan_speed(speed=12))
+    mock_api.async_set_fan_speed.assert_called_once_with(12)
+    mock_api.async_set_fan_power.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_set_auto_temp_enabled(
+    mocker: MockerFixture,
+    assert_command_success: AssertCommandTest,
+) -> None:
+    mock_api = mocker.MagicMock(spec=SnoozDeviceApi)
+
+    await assert_command_success(mock_api, set_auto_temp_enabled(True))
+    mock_api.async_set_auto_temp_enabled.assert_called_once_with(True)
+
+    mock_api.reset_mock()
+
+    await assert_command_success(mock_api, set_auto_temp_enabled(False))
+    mock_api.async_set_auto_temp_enabled.assert_called_once_with(False)
+
+
+@pytest.mark.asyncio
+async def test_set_temp_target(
+    mocker: MockerFixture,
+    assert_command_success: AssertCommandTest,
+) -> None:
+    mock_api = mocker.MagicMock(spec=SnoozDeviceApi)
+
+    await assert_command_success(mock_api, set_temp_target(55))
+    mock_api.async_set_auto_temp_threshold.assert_called_once_with(55)
+
+
+@pytest.mark.asyncio
+async def test_get_info(
+    mocker: MockerFixture,
+    assert_command_success: AssertCommandTest,
+) -> None:
+    mock_api = mocker.MagicMock(spec=SnoozDeviceApi)
+
+    await assert_command_success(mock_api, get_device_info())
+    mock_api.async_get_info.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_turn_on_transition(
     mocker: MockerFixture,
     assert_command_success: AssertCommandTest,
@@ -126,6 +216,54 @@ async def test_turn_on_transition(
     assert mock_api.mock_calls[-1] == call.async_set_volume(target_volume)
 
 
+@pytest.mark.asyncio
+async def test_turn_fan_on_transition(
+    mocker: MockerFixture,
+    assert_command_success: AssertCommandTest,
+    mock_sleep: None,
+) -> None:
+    mock_api = mocker.MagicMock(spec=SnoozDeviceApi)
+
+    min_fan_speed = 10
+    initial_speed = 100
+    mock_api.async_read_state.side_effect = [
+        SnoozDeviceState(fan_on=False, fan_speed=initial_speed)
+    ]
+
+    await assert_command_success(mock_api, turn_fan_on(duration=timedelta(seconds=10)))
+
+    mock_api.assert_has_calls(
+        [
+            # should set min speed before turning on
+            call.async_set_fan_speed(min_fan_speed),
+            # should turn on since it was off
+            call.async_set_fan_power(True),
+        ]
+    )
+    # first call to set speed should be min speed
+    assert mock_api.async_set_fan_speed.mock_calls[0] == call(min_fan_speed)
+    # last call should set the speed to initial device state
+    assert mock_api.mock_calls[-1] == call.async_set_fan_speed(initial_speed)
+
+    mock_api.reset_mock()
+
+    mock_api.async_read_state.side_effect = [
+        SnoozDeviceState(fan_on=True, fan_speed=30)
+    ]
+
+    target_speed = 13
+    await assert_command_success(
+        mock_api,
+        turn_fan_on(speed=target_speed, duration=timedelta(seconds=1)),
+    )
+
+    # when the initial power state is the same as the target, avoid unnecessary calls
+    mock_api.async_set_fan_power.assert_not_called()
+
+    # last call should set the speed to target state
+    assert mock_api.mock_calls[-1] == call.async_set_fan_speed(target_speed)
+
+
 AssertCommandSuccess = Callable[[MagicMock, SnoozCommandData], Coroutine]
 
 
@@ -157,6 +295,36 @@ async def test_turn_off_transition(
     )
     # last call should be setting initial volume
     assert mock_api.mock_calls[-1] == call.async_set_volume(initial_volume)
+
+
+@pytest.mark.asyncio
+async def test_turn_fan_off_transition(
+    mocker: MockerFixture,
+    assert_command_success: AssertCommandTest,
+    mock_sleep: None,
+) -> None:
+    mock_api = mocker.MagicMock(spec=SnoozDeviceApi)
+
+    initial_speed = 36
+    mock_api.async_read_state.side_effect = [
+        SnoozDeviceState(fan_on=True, fan_speed=initial_speed)
+    ]
+
+    await assert_command_success(mock_api, turn_fan_off(duration=timedelta(seconds=10)))
+
+    mock_api.assert_has_calls(
+        [
+            # should set min speed before turning off
+            call.async_set_fan_speed(MIN_FAN_SPEED),
+            call.async_set_fan_power(False),
+            # reset the speed to initial state -
+            # this supports the ability to transition off <-> on
+            # without the need to supply a speed
+            call.async_set_fan_speed(initial_speed),
+        ]
+    )
+    # last call should be setting initial speed
+    assert mock_api.mock_calls[-1] == call.async_set_fan_speed(initial_speed)
 
 
 @pytest.mark.asyncio

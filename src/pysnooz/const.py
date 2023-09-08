@@ -1,7 +1,6 @@
-from dataclasses import dataclass
-import dataclasses
-from enum import Enum
-from typing import Any
+from enum import IntFlag
+
+from pysnooz.model import SnoozFirmwareVersion
 
 NEW_ISSUE_URL = (
     "https://github.com/AustinBrunkhorst/pysnooz/issues/new?labels=bug"
@@ -20,84 +19,39 @@ MANUFACTURER_NAME_CHARACTERISTIC = "00002a29-0000-1000-8000-00805f9b34fb"
 READ_STATE_CHARACTERISTIC = "80c37f00-cc16-11e4-8830-0800200c9a66"
 WRITE_STATE_CHARACTERISTIC = "90759319-1668-44da-9ef3-492d593bd1e5"
 READ_COMMAND_CHARACTERISTIC = "f0499b1b-33ab-4df8-a6f2-2484a2ad1451"
-WRITE_OTA_CHARACTERISTIC = "f0499b1b-33ab-4df8-a6f2-2484a2ad6461"
 
 
-class SnoozDeviceModel(Enum):
-    ORIGINAL = 0
-    PRO = 1
-    BREEZ = 2
+SNOOZ_ADVERTISEMENT_LENGTH = 9
 
 
-@dataclass
-class SnoozNoiseMachineState:
-    on: bool | None = None
-    volume: int | None = None
+class SnoozAdvertisementFlags(IntFlag):
+    PAIRING_ENABLED = 0x01
 
 
-@dataclass
-class BreezFanState:
-    fan_on: int | None = None
-    fan_speed: int | None = None
-    fan_auto_enabled: bool | None = None
-    temperature: float | None = None
-    target_temperature: int | None = None
+FIRMWARE_VERSION_BY_FLAGS = {
+    0x04: SnoozFirmwareVersion.V2,
+    0x08: SnoozFirmwareVersion.V3,
+    0x0C: SnoozFirmwareVersion.V4,
+    0x10: SnoozFirmwareVersion.V5,
+    0x14: SnoozFirmwareVersion.V6,
+    0x18: SnoozFirmwareVersion.V7,
+    0x1C: SnoozFirmwareVersion.V8,
+    0x20: SnoozFirmwareVersion.V9,
+    0x24: SnoozFirmwareVersion.V10,
+    0x28: SnoozFirmwareVersion.V11,
+    0x2C: SnoozFirmwareVersion.V12,
+    0x30: SnoozFirmwareVersion.V13,
+    0x34: SnoozFirmwareVersion.V14,
+    0x38: SnoozFirmwareVersion.V15,
+}
+SUPPORTED_FIRMWARE_VERSIONS = [
+    SnoozFirmwareVersion.V2,
+    SnoozFirmwareVersion.V3,
+    SnoozFirmwareVersion.V4,
+    SnoozFirmwareVersion.V5,
+    SnoozFirmwareVersion.V6,
+]
 
-
-@dataclass
-class SnoozDeviceState(SnoozNoiseMachineState, BreezFanState):
-    def __eq__(self, other: Any) -> bool:
-        return (
-            self.on == other.on
-            and self.volume == other.volume
-            and self.fan_on == other.fan_on
-            and self.fan_speed == other.fan_speed
-            and self.fan_auto_enabled == other.fan_auto_enabled
-            and self.temperature == other.temperature
-            and self.target_temperature == other.target_temperature
-        )
-
-    def __repr__(self) -> str:
-        if self == UnknownSnoozState:
-            return "Snooz(Unknown)"
-
-        attributes = [f"Noise {'On' if self.on else 'Off'} at {self.volume}% volume"]
-        fan_attrs: list[str] = []
-
-        if self.fan_on is not None:
-            fan_attrs += [f"Fan {'On' if self.fan_on else 'Off'}"]
-
-        if self.fan_speed is not None:
-            fan_attrs += [f"at {self.fan_speed}% speed"]
-
-        if self.fan_auto_enabled is True:
-            fan_attrs += ["[Auto]"]
-
-        if len(fan_attrs) > 0:
-            attributes += [" ".join(fan_attrs)]
-
-        if self.temperature is not None:
-            attributes += [f"{self.temperature}°F"]
-
-        if self.target_temperature is not None:
-            attributes += [f"{self.target_temperature}°F target"]
-
-        parts = ", ".join(attributes)
-
-        return f"Snooz({parts})"
-
-
-UnknownSnoozState = SnoozDeviceState()
-
-
-@dataclass
-class SnoozDeviceInfo:
-    model: SnoozDeviceModel
-    manufacturer: str
-    hardware: str
-    firmware: str
-    software: str | None
-
-    @property
-    def supports_fan(self) -> bool:
-        return self.model == SnoozDeviceModel.BREEZ
+MODEL_NAME_SNOOZ = "Snooz"
+MODEL_NAME_BREEZ = "Breez"
+SUPPORTED_MODEL_NAMES = [MODEL_NAME_SNOOZ, MODEL_NAME_BREEZ]

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import struct
 import logging
-from asyncio import Event, Lock
+from asyncio import Lock
 from enum import IntEnum
 from typing import Callable
 from attr import dataclass
@@ -21,11 +21,8 @@ from .const import (
     READ_COMMAND_CHARACTERISTIC,
     SOFTWARE_REVISION_CHARACTERISTIC,
     WRITE_STATE_CHARACTERISTIC,
-    WRITE_OTA_CHARACTERISTIC,
-    SnoozDeviceInfo,
-    SnoozDeviceModel,
-    SnoozDeviceState,
 )
+from .model import SnoozDeviceCharacteristicData, SnoozDeviceState
 
 # values less than this have no effect
 MIN_DEVICE_VOLUME = 10
@@ -106,13 +103,14 @@ class MissingCharacteristicError(Exception):
 
 
 @dataclass
-class RequiredCharacteristic:
+class CharacteristicReference:
     uuid: str
+    required: bool = True
 
     def get(self, client: BleakClient) -> BleakGATTCharacteristic:
         char = client.services.get_characteristic(self.uuid)
 
-        if char is None:
+        if char is None and self.required:
             raise MissingCharacteristicError(self.uuid)
 
         return char
@@ -128,17 +126,26 @@ class SnoozDeviceApi:
     ) -> None:
         self.unsubscribe_all_events()
         self._client = client
-        self._info: SnoozDeviceInfo | None = None
         self._write_lock = Lock()
-        self._other_settings_received = Event()
         self._ = format_log_message or (lambda msg: msg)
-        self._read_state_char = RequiredCharacteristic(READ_STATE_CHARACTERISTIC)
-        self._read_command_char = RequiredCharacteristic(READ_COMMAND_CHARACTERISTIC)
-        self._write_state_char = RequiredCharacteristic(WRITE_STATE_CHARACTERISTIC)
+        self._read_state_char = CharacteristicReference(READ_STATE_CHARACTERISTIC)
+        self._read_command_char = CharacteristicReference(READ_COMMAND_CHARACTERISTIC)
+        self._write_state_char = CharacteristicReference(WRITE_STATE_CHARACTERISTIC)
+        self._info_chars = [
+            CharacteristicReference(MANUFACTURER_NAME_CHARACTERISTIC),
+            CharacteristicReference(MODEL_NUMBER_CHARACTERISTIC),
+            CharacteristicReference(HARDWARE_REVISION_CHARACTERISTIC),
+            CharacteristicReference(FIRMWARE_REVISION_CHARACTERISTIC),
+            # Older Snooz devices don't have this
+            CharacteristicReference(SOFTWARE_REVISION_CHARACTERISTIC, required=False),
+        ]
         self._required_chars = [
-            self._read_state_char,
-            self._read_command_char,
-            self._write_state_char,
+            *[
+                ref
+                for ref in [getattr(self, c) for c in dir(self)]
+                if isinstance(ref, CharacteristicReference) and ref.required
+            ],
+            *[ref for ref in self._info_chars if ref.required],
         ]
 
     @property
@@ -152,65 +159,42 @@ class SnoozDeviceApi:
         for char in self._required_chars:
             char.get(client)
 
+    def _require_client(self, require_connection=True) -> BleakClient:
+        if self._client is None:
+            raise AssertionError("client was None")
+
+        if require_connection and not self._client.is_connected:
+            raise AssertionError("client was not connected")
+
+        return self._client
+
     def unsubscribe_all_events(self) -> None:
         self.events = Events(self.event_names)
 
     async def async_disconnect(self) -> None:
-        if self._client is None:
-            raise Exception("self._client was None")
-        await self._client.disconnect()
+        client = self._require_client()
 
-    async def async_get_info(self) -> SnoozDeviceInfo | None:
-        if self._info is not None:
-            return self._info
+        await client.disconnect()
 
-        if self._client is None:
-            raise Exception("self._client was None")
-
-        if not self.is_connected:
+    async def async_get_info(self) -> SnoozDeviceCharacteristicData | None:
+        client = self._require_client(False)
+        if not client.is_connected:
             return None
-
         string_props = []
-        for char_uuid in (
-            MANUFACTURER_NAME_CHARACTERISTIC,
-            MODEL_NUMBER_CHARACTERISTIC,
-            HARDWARE_REVISION_CHARACTERISTIC,
-            FIRMWARE_REVISION_CHARACTERISTIC,
-            SOFTWARE_REVISION_CHARACTERISTIC,
-        ):
-            char = self._client.services.get_characteristic(char_uuid)
-            # Older Snooz devices don't have SOFTWARE_REVISION_CHARACTERISTIC
+        for char_ref in self._info_chars:
+            char = char_ref.get(client)
             if not char:
                 value = None
             else:
-                value = (
-                    (await self._client.read_gatt_char(char)).decode().split("\0")[0]
-                )
+                value = (await client.read_gatt_char(char)).decode().split("\0")[0]
             string_props.append(value)
 
-        data = SnoozDeviceCharacteristicData(*string_props)
-        has_ota = (
-            self._client.services.get_characteristic(WRITE_OTA_CHARACTERISTIC)
-            is not None
+        return SnoozDeviceCharacteristicData(*string_props)
+
+    async def async_authenticate_connection(self, password: str) -> None:
+        await self._async_write_state(
+            bytes([Command.PASSWORD, *bytes.fromhex(password)])
         )
-        model = get_device_model(data, has_ota)
-
-        if model == SnoozDeviceModel.BREEZ:
-            await self.async_request_other_settings()
-            await self._other_settings_received.wait()
-
-        # result is cached in memory
-        self._info = SnoozDeviceInfo(
-            model=model,
-            manufacturer=data.manufacturer,
-            hardware=data.hardware,
-            firmware=data.firmware,
-            software=data.software,
-        )
-        return self._info
-
-    async def async_authenticate_connection(self, token: bytes) -> None:
-        await self._async_write_state(bytes([Command.PASSWORD, *token]))
 
     async def async_set_power(self, on: bool) -> None:
         await self._async_write_state(bytes([Command.MOTOR_ENABLED, 1 if on else 0]))
@@ -246,29 +230,24 @@ class SnoozDeviceApi:
         await self.async_request_other_settings()
 
     async def async_read_state(self, use_cached: bool = False) -> SnoozDeviceState:
-        if self._client is None:
-            raise Exception("self._client was None")
+        client = self._require_client()
 
-        data = await self._client.read_gatt_char(
-            self._read_state_char.get(self._client), use_cached=use_cached
+        data = await client.read_gatt_char(
+            self._read_state_char.get(client), use_cached=use_cached
         )
-        info = await self.async_get_info()
-        return unpack_state(data, info)
+        return unpack_state(data)
 
     async def async_subscribe(self) -> None:
-        if self._client is None:
-            raise Exception("self._client was None")
+        client = self._require_client(False)
 
-        if not self._client.is_connected:
+        if not client.is_connected:
             return
 
-        info = await self.async_get_info()
-
         def on_state_change(_, payload: bytes) -> None:
-            self.events.on_state_patched(unpack_state(payload, info))
+            self.events.on_state_patched(unpack_state(payload))
 
-        await self._client.start_notify(
-            self._read_state_char.get(self._client),
+        await client.start_notify(
+            self._read_state_char.get(client),
             on_state_change,
         )
 
@@ -276,36 +255,31 @@ class SnoozDeviceApi:
             command = ResponseCommand(data[0])
             payload = data[1:]
 
-            self.events.on_state_patched(
-                unpack_response_command(self._state, command, payload)
-            )
+            self.events.on_state_patched(unpack_response_command(command, payload))
 
-            if command == ResponseCommand.SEND_OTHER_SETTINGS:
-                self._other_settings_received.set()
-
-        await self._client.start_notify(
-            self._read_command_char.get(self._client), on_response_command
+        await client.start_notify(
+            self._read_command_char.get(client), on_response_command
         )
 
     async def async_request_other_settings(self) -> None:
         await self._async_write_state(bytes([Command.REQUEST_OTHER_SETTINGS]))
 
     async def _async_write_state(self, data: bytes | None = None) -> None:
-        assert self._client
+        client = self._require_client(False)
 
         attempts = 0
 
         async with self._write_lock:
             last_ex: BleakDBusError | None = None
 
-            while self._client.is_connected and attempts <= RETRY_WRITE_FAILURE_COUNT:
+            while client.is_connected and attempts <= RETRY_WRITE_FAILURE_COUNT:
                 try:
                     message = f"write {data.hex('-')}"
                     if attempts > 0 and last_ex is not None:
                         message += f" (attempt {attempts+1}, last error: {last_ex})"
                     _LOGGER.debug(self._(message))
-                    await self._client.write_gatt_char(
-                        self._write_state_char.get(self._client), data, response=True
+                    await client.write_gatt_char(
+                        self._write_state_char.get(client), data, response=True
                     )
                     return
                 except BleakDBusError as ex:
@@ -326,24 +300,6 @@ class SnoozDeviceApi:
                         raise
 
 
-@dataclass
-class SnoozDeviceCharacteristicData:
-    manufacturer: str
-    model: str
-    hardware: str
-    firmware: str
-    software: str | None
-
-
-def get_device_model(
-    data: SnoozDeviceCharacteristicData, has_ota: bool
-) -> SnoozDeviceModel:
-    if has_ota and data.model == "V4":
-        return SnoozDeviceModel.BREEZ if data.hardware == "0" else SnoozDeviceModel.PRO
-
-    return SnoozDeviceModel.ORIGINAL
-
-
 def unpack_response_command(command: ResponseCommand, data: bytes) -> SnoozDeviceState:
     result = SnoozDeviceState()
 
@@ -362,14 +318,12 @@ def unpack_response_command(command: ResponseCommand, data: bytes) -> SnoozDevic
     return result
 
 
-def unpack_state(data: bytes, device_info: SnoozDeviceInfo) -> SnoozDeviceState:
+def unpack_state(data: bytes) -> SnoozDeviceState:
     (volume, on, fan_speed, fan_on) = struct.unpack("<BBxBB", data[0:5])
 
     return SnoozDeviceState(
         volume=volume,
         on=bool(on),
-        # for backwards compatibility, fan related state is set to None
-        # when not supported
-        fan_on=bool(fan_on) if device_info.supports_fan else None,
-        fan_speed=fan_speed if device_info.supports_fan else None,
+        fan_on=bool(fan_on),
+        fan_speed=fan_speed,
     )

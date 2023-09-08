@@ -30,7 +30,10 @@ from pysnooz.commands import (
 )
 from pysnooz.const import (
     UNEXPECTED_ERROR_LOG_MESSAGE,
-    SnoozDeviceInfo,
+)
+from pysnooz.model import (
+    SnoozAdvertisementData,
+    SnoozDeviceCharacteristicData,
     SnoozDeviceState,
     UnknownSnoozState,
 )
@@ -77,7 +80,10 @@ class SnoozDeviceUnavailableError(Exception):
 
 class SnoozDevice:
     def __init__(
-        self, device: BLEDevice, token: str, loop: AbstractEventLoop | None = None
+        self,
+        device: BLEDevice,
+        adv_data: SnoozAdvertisementData,
+        loop: AbstractEventLoop | None = None,
     ) -> None:
         self.events = Events(
             (
@@ -93,7 +99,7 @@ class SnoozDevice:
             )
         )
         self._device = device
-        self._token = token
+        self._adv_data = adv_data
         self._loop = loop if loop is not None else asyncio.get_running_loop()
         self._last_dispatched_connection_status: SnoozConnectionStatus | None = None
         self._connection_complete = Event()
@@ -102,8 +108,7 @@ class SnoozDevice:
         self._connection_start_time: datetime | None = None
         self._connection_ready_time: datetime | None = None
         self._api: SnoozDeviceApi | None = None
-        self._info: SnoozDeviceInfo | None = None
-        self._store = SnoozStateStore()
+        self._store = SnoozStateStore(self._adv_data)
         self._connect_lock = Lock()
         self._command_lock = Lock()
         self._connection_task: Task[None] | None = None
@@ -222,15 +227,10 @@ class SnoozDevice:
         finally:
             self._expected_disconnect = False
 
-    async def async_get_info(self) -> SnoozDeviceInfo | None:
-        if self._info is not None:
-            return self._info
-
+    async def async_get_info(self) -> SnoozDeviceCharacteristicData | None:
         result = await self.async_execute_command(get_device_info())
 
-        self._info = result.response
-
-        return self._info
+        return result.response
 
     async def async_execute_command(self, data: SnoozCommandData) -> SnoozCommandResult:
         self._cancel_current_command()
@@ -322,7 +322,7 @@ class SnoozDevice:
         # to prevent a cancellation race condition
 
         if self.connection_status == SnoozConnectionStatus.CONNECTING:
-            await api.async_authenticate_connection(bytes.fromhex(self._token))
+            await api.async_authenticate_connection(self._adv_data.password)
 
         if self.connection_status == SnoozConnectionStatus.CONNECTING:
             await api.async_subscribe()
@@ -350,7 +350,7 @@ class SnoozDevice:
 
         try:
             api.load_client(client)
-        except MissingCharacteristicError as ex:
+        except MissingCharacteristicError:
             await client.clear_cache()
 
             self._expected_disconnect = True
@@ -359,7 +359,7 @@ class SnoozDevice:
             finally:
                 self._expected_disconnect = False
 
-            raise ex
+            raise
 
         return api
 
