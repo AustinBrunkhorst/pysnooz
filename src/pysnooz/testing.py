@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import struct
 from typing import Any, Awaitable, Callable
 from unittest.mock import MagicMock
@@ -10,7 +11,6 @@ from bleak import BleakClient, BLEDevice
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.service import BleakGATTServiceCollection
 from bleak_retry_connector import BleakClientWithServiceCache
-from transitions import EventData
 
 from pysnooz.api import (
     READ_COMMAND_CHARACTERISTIC,
@@ -27,8 +27,10 @@ from pysnooz.const import (
     MODEL_NUMBER_CHARACTERISTIC,
     SOFTWARE_REVISION_CHARACTERISTIC,
 )
-from pysnooz.device import DisconnectionReason, SnoozDevice
+from pysnooz.device import SnoozDevice
 from pysnooz.model import SnoozAdvertisementData, SnoozDeviceModel, SnoozDeviceState
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class MockSnoozDevice(SnoozDevice):
@@ -44,8 +46,7 @@ class MockSnoozDevice(SnoozDevice):
         super().__init__(address_or_ble_device, adv_data)
 
         def _on_disconnected(_: BleakClient) -> None:
-            if self._api is not None:
-                self._api.events.on_disconnect()
+            self._api.events.on_disconnect()  # type: ignore
 
         self._store.current = initial_state
         self._mock_client = MockSnoozClient(
@@ -69,11 +70,6 @@ class MockSnoozDevice(SnoozDevice):
     def trigger_temperature(self, temp: float) -> None:
         """Trigger a new temperature update."""
         self._mock_client.trigger_temperature(temp)
-
-    def _on_device_disconnected(self, e: EventData) -> None:
-        if self._expected_disconnect:
-            e.kwargs.set("reason", DisconnectionReason.USER)
-        return super()._on_device_disconnected(e)
 
 
 CharNotifyCallback = Callable[
@@ -145,6 +141,8 @@ class MockSnoozClient(BleakClientWithServiceCache):
         if not self._is_connected:
             return
 
+        _LOGGER.debug("Triggering device disconnect")
+
         self._is_connected = False
 
         if self._disconnected_callback is not None:
@@ -152,17 +150,22 @@ class MockSnoozClient(BleakClientWithServiceCache):
 
     def trigger_state(self, state: SnoozDeviceState) -> None:
         """Set the current state and notify subscribers."""
+        _LOGGER.debug(f"Triggering state update {state}")
+
         self._state = state
         self._send_state_update()
 
     def trigger_temperature(self, temp: float) -> None:
         """Trigger a temperature update and notify subscribers."""
+        _LOGGER.debug("Triggering temperature update {temp}")
+
         self._send_response_command(
             ResponseCommand.TEMPERATURE, struct.pack("<f", temp)
         )
 
     def reset_mock(self, initial_state: bool = False) -> None:
         """Reset the mock state."""
+        _LOGGER.debug("Resetting mock client")
         self._is_connected = True
         self._has_set_password = False
         self._state_char_callback = None
@@ -206,9 +209,6 @@ class MockSnoozClient(BleakClientWithServiceCache):
             MANUFACTURER_NAME_CHARACTERISTIC: "Snooz",
         }
 
-        if char_specifier.uuid not in mock_values:
-            return bytearray([])
-
         return bytearray(mock_values[char_specifier.uuid], "utf-8")
 
     async def read_gatt_descriptor(self, handle: int, **kwargs: Any) -> bytearray:
@@ -227,28 +227,35 @@ class MockSnoozClient(BleakClientWithServiceCache):
 
         if command == Command.PASSWORD:
             self._has_set_password = True
+            _LOGGER.debug(f"Received password: {data[1:].hex()}")
             return
-        elif command == Command.REQUEST_OTHER_SETTINGS:
-            self._send_response_command(
-                ResponseCommand.SEND_OTHER_SETTINGS,
-                pack_other_settings(self._state),
-            )
 
-            return
-        elif command == Command.MOTOR_ENABLED:
-            self._state.on = unpack_bool(data[1])
-        elif command == Command.MOTOR_SPEED:
-            self._state.volume = max(0, min(100, int(data[1])))
-        elif command == Command.FAN_ENABLED:
-            self._state.fan_on = unpack_bool(data[1])
-        elif command == Command.FAN_SPEED:
-            self._state.fan_speed = max(0, min(100, int(data[1])))
-        elif command == Command.AUTO_TEMP_ENABLED:
-            self._state.fan_auto_enabled = unpack_bool(data[1])
-        elif command == Command.AUTO_TEMP_THRESHOLD:
-            self._state.target_temperature = max(0, data[1])
+        if self._has_set_password:
+            if command == Command.REQUEST_OTHER_SETTINGS:
+                self._send_response_command(
+                    ResponseCommand.SEND_OTHER_SETTINGS,
+                    pack_other_settings(self._state),
+                )
+
+                return
+            elif command == Command.MOTOR_ENABLED:
+                self._state.on = unpack_bool(data[1])
+            elif command == Command.MOTOR_SPEED:
+                self._state.volume = max(0, min(100, int(data[1])))
+            elif command == Command.FAN_ENABLED:
+                self._state.fan_on = unpack_bool(data[1])
+            elif command == Command.FAN_SPEED:
+                self._state.fan_speed = max(0, min(100, int(data[1])))
+            elif command == Command.AUTO_TEMP_ENABLED:
+                self._state.fan_auto_enabled = unpack_bool(data[1])
+            elif command == Command.AUTO_TEMP_THRESHOLD:
+                self._state.target_temperature = max(0, data[1])
+            else:
+                raise Exception(f"Unexpected command ID: {command} in {data.hex('-')}")
         else:
-            raise Exception(f"Unexpected command ID: {command} in {data.hex('-')}")
+            _LOGGER.warning(
+                f"Received command before password was set: {data.hex('-')}"
+            )
 
         self._send_state_update()
 
@@ -280,7 +287,12 @@ class MockSnoozClient(BleakClientWithServiceCache):
             return
 
         # pass None since it's unused by SnoozDeviceApi
-        self._state_char_callback(None, self._get_state_char_data())
+        self._state_char_callback(
+            None,
+            self._get_state_char_data() if self._has_set_password
+            # when a password isn't set, the device sends a zeroed out state
+            else bytearray([0] * 20),
+        )
 
     def _send_response_command(self, command: ResponseCommand, payload: bytes) -> None:
         if self._command_char_callback is None:
@@ -294,12 +306,9 @@ class MockSnoozClient(BleakClientWithServiceCache):
 
 def pack_state(state: SnoozDeviceState) -> bytearray:
     """Converts device data to device state"""
-    if state.volume is None:
-        raise ValueError("Volume must be specified")
-
     return bytearray(
         [
-            state.volume,
+            state.volume or 0x00,
             pack_bool(state.on),
             0x00,
             state.fan_speed or 0x00,

@@ -739,6 +739,7 @@ async def test_unexpected_error_during_execution(
 async def test_disconnect_before_ready_then_reconnects(
     mocker: MockerFixture, snooz: SnoozTestFixture
 ) -> None:
+    original_authenticate = SnoozDeviceApi.async_authenticate_connection
     mock_authenticate = mocker.patch(
         "pysnooz.device.SnoozDeviceApi.async_authenticate_connection",
         autospec=True,
@@ -746,7 +747,7 @@ async def test_disconnect_before_ready_then_reconnects(
 
     def trigger_disconnect_once(*args, **kwargs):
         snooz.trigger_disconnect(device)
-        mock_authenticate.side_effect = None
+        mock_authenticate.side_effect = original_authenticate
 
     mock_authenticate.side_effect = trigger_disconnect_once
 
@@ -866,6 +867,7 @@ async def test_manual_disconnect_before_ready(
 async def test_disconnect_while_reconnecting_before_ready(
     mocker: MockerFixture, snooz: SnoozTestFixture
 ) -> None:
+    original_authenticate = SnoozDeviceApi.async_authenticate_connection
     mock_authenticate = mocker.patch(
         "pysnooz.device.SnoozDeviceApi.async_authenticate_connection",
         autospec=True,
@@ -875,7 +877,7 @@ async def test_disconnect_while_reconnecting_before_ready(
         snooz.trigger_disconnect(device)
 
         if mock_authenticate.call_count >= 2:
-            mock_authenticate.side_effect = None
+            mock_authenticate.side_effect = original_authenticate
 
     mock_authenticate.side_effect = trigger_disconnect_twice
 

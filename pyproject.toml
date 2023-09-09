@@ -64,9 +64,6 @@ exclude_lines = [
     "if TYPE_CHECKING",
     "raise NotImplementedError",
 ]
-omit = [
-    "src/pysnooz/testing.py"
-]
 
 [tool.isort]
 profile = "black"
