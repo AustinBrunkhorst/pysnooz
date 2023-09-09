@@ -46,7 +46,8 @@ class MockSnoozDevice(SnoozDevice):
         super().__init__(address_or_ble_device, adv_data)
 
         def _on_disconnected(_: BleakClient) -> None:
-            self._api.events.on_disconnect()  # type: ignore
+            if self._api is not None and not self._expected_disconnect:
+                self._api.events.on_disconnect()
 
         self._store.current = initial_state
         self._mock_client = MockSnoozClient(
@@ -55,21 +56,25 @@ class MockSnoozDevice(SnoozDevice):
         self._mock_client.trigger_state(initial_state)
 
         async def _create_mock_api() -> SnoozDeviceApi:
+            self._mock_client.reset_mock()
             return SnoozDeviceApi(self._mock_client)
 
         self._async_create_api = _create_mock_api  # type: ignore
 
     def trigger_disconnect(self) -> None:
         """Trigger a disconnect."""
-        self._mock_client.trigger_disconnect()
+        if self._api is not None:
+            self._mock_client.trigger_disconnect()
 
     def trigger_state(self, new_state: SnoozDeviceState) -> None:
         """Trigger a new state."""
-        self._mock_client.trigger_state(new_state)
+        if self._api is not None:
+            self._mock_client.trigger_state(new_state)
 
     def trigger_temperature(self, temp: float) -> None:
         """Trigger a new temperature update."""
-        self._mock_client.trigger_temperature(temp)
+        if self._api is not None:
+            self._mock_client.trigger_temperature(temp)
 
 
 CharNotifyCallback = Callable[

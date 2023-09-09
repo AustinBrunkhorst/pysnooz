@@ -1,15 +1,17 @@
 # mypy: warn_unreachable=False
+
 import pytest
 from bleak import BLEDevice
 from pytest_mock import MockerFixture
 
 from pysnooz.api import Command
-from pysnooz.commands import SnoozCommandResultStatus, turn_on
+from pysnooz.commands import SnoozCommandResultStatus, set_volume, turn_on
 from pysnooz.const import (
     READ_COMMAND_CHARACTERISTIC,
     READ_STATE_CHARACTERISTIC,
     WRITE_STATE_CHARACTERISTIC,
 )
+from pysnooz.device import SnoozConnectionStatus
 from pysnooz.model import (
     SnoozAdvertisementData,
     SnoozDeviceModel,
@@ -130,6 +132,11 @@ async def test_mock_device(mocker: MockerFixture, model: SnoozDeviceModel) -> No
 
     assert device.is_connected is False
 
+    # should do nothing
+    device.trigger_disconnect()
+    device.trigger_state(SnoozDeviceState(on=True, volume=32))
+    device.trigger_temperature(72.5)
+
     on_state_change = mocker.stub()
     device.subscribe_to_state_change(on_state_change)
 
@@ -159,5 +166,14 @@ async def test_mock_device(mocker: MockerFixture, model: SnoozDeviceModel) -> No
         assert device.state.temperature == 72.5
         on_state_change.assert_called()
 
+    await device.async_disconnect()
+    assert device.is_connected is False
+
+    result = await device.async_execute_command(set_volume(55))
+    assert result.status == SnoozCommandResultStatus.SUCCESSFUL
+    assert device.is_connected is True
+    assert device.state.volume == 55
+
     device.trigger_disconnect()
     assert device.is_connected is False
+    assert device.connection_status == SnoozConnectionStatus.DISCONNECTED
