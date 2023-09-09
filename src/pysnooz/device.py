@@ -33,8 +33,8 @@ from pysnooz.model import (
     SnoozAdvertisementData,
     SnoozDeviceCharacteristicData,
     SnoozDeviceModel,
-    SnoozFirmwareVersion,
     SnoozDeviceState,
+    SnoozFirmwareVersion,
     UnknownSnoozState,
 )
 from pysnooz.store import SnoozStateStore
