@@ -4,6 +4,7 @@ from .advertisement import (
     parse_snooz_advertisement,
 )
 from .commands import (
+    SnoozCommandResult,
     SnoozCommandResultStatus,
     get_device_info,
     set_auto_temp_enabled,
@@ -34,6 +35,7 @@ __all__ = [
     "SnoozDeviceCharacteristicData",
     "UnknownSnoozState",
     "SnoozCommandData",
+    "SnoozCommandResult",
     "SnoozCommandResultStatus",
     "SnoozAdvertisementData",
     "parse_snooz_advertisement",

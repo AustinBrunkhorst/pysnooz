@@ -32,6 +32,8 @@ from pysnooz.const import UNEXPECTED_ERROR_LOG_MESSAGE
 from pysnooz.model import (
     SnoozAdvertisementData,
     SnoozDeviceCharacteristicData,
+    SnoozDeviceModel,
+    SnoozFirmwareVersion,
     SnoozDeviceState,
     UnknownSnoozState,
 )
@@ -168,6 +170,14 @@ class SnoozDevice:
     @property
     def address(self) -> str:
         return self._device.address
+
+    @property
+    def model(self) -> SnoozDeviceModel:
+        return self._adv_data.model
+
+    @property
+    def firmware_version(self) -> SnoozFirmwareVersion:
+        return self._adv_data.firmware_version
 
     @property
     def connection_status(self) -> SnoozConnectionStatus:
