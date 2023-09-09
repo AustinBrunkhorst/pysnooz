@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import struct
 from typing import Any, Awaitable, Callable
@@ -49,11 +50,12 @@ class MockSnoozDevice(SnoozDevice):
             if self._api is not None and not self._expected_disconnect:
                 self._api.events.on_disconnect()
 
-        self._store.current = initial_state
+        state_copy = dataclasses.replace(initial_state)
+        self._store.current = state_copy
         self._mock_client = MockSnoozClient(
             address_or_ble_device, adv_data.model, _on_disconnected
         )
-        self._mock_client.trigger_state(initial_state)
+        self._mock_client.trigger_state(state_copy)
 
         async def _create_mock_api() -> SnoozDeviceApi:
             self._mock_client.reset_mock()
@@ -157,7 +159,7 @@ class MockSnoozClient(BleakClientWithServiceCache):
         """Set the current state and notify subscribers."""
         _LOGGER.debug(f"Triggering state update {state}")
 
-        self._state = state
+        self._state = dataclasses.replace(state)
         self._send_state_update()
 
     def trigger_temperature(self, temp: float) -> None:
