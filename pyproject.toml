@@ -49,6 +49,9 @@ addopts = "-v -Wdefault --cov=pysnooz --cov-report=term-missing:skip-covered"
 pythonpath = ["src"]
 log_cli = true
 log_cli_level = "DEBUG"
+markers = [
+    "model",
+]
 
 [tool.coverage.run]
 branch = true
@@ -56,6 +59,7 @@ branch = true
 [tool.coverage.report]
 exclude_lines = [
     "pragma: no cover",
+    "@abstract",
     "@overload",
     "if TYPE_CHECKING",
     "raise NotImplementedError",

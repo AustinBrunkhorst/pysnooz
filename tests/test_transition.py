@@ -58,6 +58,9 @@ async def test_cancel(
             on_complete,
         )
 
+    # should be noop
+    transition.cancel()
+
     # ensure no additional calls made after cancelled
     assert not [
         c for c in on_update.mock_calls if round(c.args[0]) > cancel_after_value
