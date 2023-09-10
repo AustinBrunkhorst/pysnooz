@@ -2,6 +2,13 @@
 
 
 
+## v0.9.1 (2023-09-10)
+
+### Fix
+
+* fix: commands execution can be cancelled without disconnect (#15) ([`f4b4111`](https://github.com/AustinBrunkhorst/pysnooz/commit/f4b41118705358a7b7cbf8a64e9b84f8a2b5315c))
+
+
 ## v0.9.0 (2023-09-10)
 
 ### Feature
