@@ -24,20 +24,32 @@ Install this via pip (or your favourite package manager):
 
 `pip install pysnooz`
 
+## Supported devices
+
+- [SNOOZ Original](https://getsnooz.com/products/snooz-white-noise-machine)
+- [SNOOZ Pro](https://getsnooz.com/products/snooz-pro-white-noise-machine)
+- [Breez](https://getsnooz.com/products/snooz-breez-smart-bedroom-fan-sound-machine)
+
 ## Usage
 
 ```python
 import asyncio
 from datetime import timedelta
-from bleak.backends.client import BLEDevice
-from pysnooz.device import SnoozDevice
-from pysnooz.commands import SnoozCommandResultStatus, turn_on, turn_off, set_volume
+from home_assistant_bluetooth import BluetoothServiceInfo
+from pysnooz.device import (
+  SnoozAdvertisementData,
+  SnoozDevice,
+  SnoozCommandResultStatus,
+  turn_on,
+  turn_off,
+  set_volume
+)
 
 # found with discovery
-ble_device = BLEDevice(...)
-token = "deadbeef"
+device_info = BluetoothServiceInfo(...)
+advertisement = parse_snooz_advertisement(device_info)
 
-device = SnoozDevice(ble_device, token, asyncio.get_event_loop())
+device = SnoozDevice(device_info, advertisement, asyncio.get_event_loop())
 
 # optionally specify a volume to set before turning on
 await device.async_execute_command(turn_on(volume=100))
