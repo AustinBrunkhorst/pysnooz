@@ -388,6 +388,19 @@ async def test_device_info(mocker: MockerFixture, snooz: SnoozTestFixture) -> No
 
 
 @pytest.mark.asyncio
+async def test_cancel_device_info(snooz: SnoozTestFixture) -> None:
+    device = snooz.create_device()
+
+    async def takes_a_second(*args, **kwargs):
+        await asyncio.sleep(1)
+
+    snooz.mock_connect.side_effect = takes_a_second
+
+    result = await asyncio.wait_for(device.async_get_info(), timeout=0.1)
+    assert result is None
+
+
+@pytest.mark.asyncio
 @pytest.mark.model(SnoozDeviceModel.BREEZ)
 async def test_device_info_breez(
     mocker: MockerFixture, snooz: SnoozTestFixture
@@ -1038,6 +1051,20 @@ async def test_manual_disconnect_during_transition(
         call(SnoozConnectionStatus.CONNECTED),
         call(SnoozConnectionStatus.DISCONNECTED),
     ]
+
+
+@pytest.mark.asyncio
+async def test_command_cancellation(snooz: SnoozTestFixture) -> None:
+    device = snooz.create_device()
+
+    async def takes_a_second(*args, **kwargs):
+        await asyncio.sleep(1)
+
+    snooz.mock_connect.side_effect = takes_a_second
+
+    await asyncio.wait_for(
+        snooz.assert_command_cancelled(device, turn_on()), timeout=0.1
+    )
 
 
 @pytest.mark.asyncio

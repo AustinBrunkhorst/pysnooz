@@ -252,7 +252,10 @@ class SnoozDevice:
         )
         self._current_command = command
 
-        await self._async_execute_current_command()
+        try:
+            await self._async_execute_current_command()
+        except CancelledError:
+            command.cancel()
 
         result = await command.result
 
@@ -280,10 +283,6 @@ class SnoozDevice:
                     and command.state != CommandProcessorState.COMPLETE
                 ):
                     await command.async_execute(self._api)
-        except CancelledError:
-            # happens when async_disconnect() is called during a connection
-            # we swallow it because we want to escape execution of the command
-            pass
         except SnoozDeviceDisconnectedError:
             self._machine.device_disconnected(reason=DisconnectionReason.DEVICE)
         except SnoozDeviceUnavailableError:
