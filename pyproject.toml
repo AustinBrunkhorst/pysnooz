@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pysnooz"
-version = "0.8.6"
+version = "0.9.0"
 description = "Control SNOOZ white noise machines."
 authors = ["Austin Brunkhorst <pysnooz@alb.dev>"]
 license = "MIT"

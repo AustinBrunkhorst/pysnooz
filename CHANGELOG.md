@@ -2,6 +2,31 @@
 
 
 
+## v0.9.0 (2023-09-10)
+
+### Feature
+
+* feat: support for breez and pro devices (#14)
+
+* test: improve coverage
+
+* test: update pyproject.toml for tests
+
+* test: add device properties for testing
+
+* test: add coverage for mock clients
+
+* test: mock client handles disconnect properly
+
+* test: states are copied in mock clients
+
+* docs: add supported devices, update usage
+
+---------
+
+Co-authored-by: github-actions &lt;github-actions@github.com&gt; ([`3b823c8`](https://github.com/AustinBrunkhorst/pysnooz/commit/3b823c8272864352220838ccbddb97655afb311c))
+
+
 ## v0.8.6 (2023-08-30)
 
 ### Chore
