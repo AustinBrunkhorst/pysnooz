@@ -1,5 +1,5 @@
 import time
-from asyncio import AbstractEventLoop, gather, sleep
+from asyncio import AbstractEventLoop, CancelledError, gather, sleep
 from datetime import datetime, timedelta
 from typing import Awaitable, Callable, Coroutine
 from unittest.mock import MagicMock, call
@@ -377,6 +377,35 @@ async def test_cancel_during_execution(
 
     # cancel command before it completes
     await gather(cancel_soon(), command.async_execute(mock_api))
+
+    result = await command.result
+    assert command.state == CommandProcessorState.COMPLETE
+    assert result.status == SnoozCommandResultStatus.CANCELLED
+    mock_api.async_set_power.assert_called_once_with(True)
+
+
+@pytest.mark.asyncio
+async def test_raise_on_cancel(
+    mocker: MockerFixture, event_loop: AbstractEventLoop
+) -> None:
+    mock_api = mocker.MagicMock(spec=SnoozDeviceApi)
+
+    command = create_command_processor(event_loop, datetime.now(), turn_on())
+
+    async def cancel_soon():
+        await sleep(0.1)
+        command.cancel()
+
+    async def takes_a_while(on):
+        await sleep(0.5)
+
+    mock_api.async_set_power.side_effect = takes_a_while
+
+    # cancel command before it completes and raise on cancel
+    with pytest.raises(CancelledError):
+        await gather(
+            cancel_soon(), command.async_execute(mock_api, raise_on_cancel=True)
+        )
 
     result = await command.result
     assert command.state == CommandProcessorState.COMPLETE
