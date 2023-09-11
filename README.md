@@ -42,14 +42,19 @@ from pysnooz.device import (
   SnoozCommandResultStatus,
   turn_on,
   turn_off,
-  set_volume
+  set_volume,
+  turn_fan_on,
+  turn_fan_off,
+  set_fan_speed,
+  set_auto_temp_enabled,
+  set_temp_target
 )
 
 # found with discovery
 device_info = BluetoothServiceInfo(...)
 advertisement = parse_snooz_advertisement(device_info)
 
-device = SnoozDevice(device_info, advertisement, asyncio.get_event_loop())
+device = SnoozDevice(device_info, advertisement)
 
 # optionally specify a volume to set before turning on
 await device.async_execute_command(turn_on(volume=100))
@@ -57,8 +62,16 @@ await device.async_execute_command(turn_on(volume=100))
 # you can transition volume by specifying a duration
 await device.async_execute_command(turn_off(duration=timedelta(seconds=10)))
 
-# you can also set the volume directly
-await device.async_execute_command(set_volume(50))
+other_commands = [
+  set_volume(50, duration=timedelta(seconds=10)),
+
+  # the following commands are only supported by Breez
+  set_fan_speed(33, duration=timedelta(seconds=10)),
+  set_auto_temp_enabled(True),
+  set_temp_target(71)
+]
+for command in other_commands:
+  await device.async_execute_command(command)
 
 # view the result of a command execution
 result = await device.async_execute_command(turn_on())
