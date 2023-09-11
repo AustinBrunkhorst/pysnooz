@@ -2,6 +2,17 @@
 
 
 
+## v0.9.2 (2023-09-11)
+
+### Fix
+
+* fix: update README to list all commands ([`c0f3b2d`](https://github.com/AustinBrunkhorst/pysnooz/commit/c0f3b2da79c3ee76309ab83cb2288de83c64db63))
+
+### Test
+
+* test: cancelled command execution raises (#16) ([`da9177b`](https://github.com/AustinBrunkhorst/pysnooz/commit/da9177bc28c027039c3ad60c92a7294ddf1db99d))
+
+
 ## v0.9.1 (2023-09-10)
 
 ### Fix
