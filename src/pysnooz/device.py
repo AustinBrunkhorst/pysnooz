@@ -70,10 +70,6 @@ class DisconnectionReason(Enum):
     UNEXPECTED_ERROR = 3
 
 
-class SnoozDeviceDisconnectedError(Exception):
-    pass
-
-
 class SnoozDeviceUnavailableError(Exception):
     pass
 
@@ -115,6 +111,7 @@ class SnoozDevice:
         self._reconnection_task: Task[None] | None = None
         self._current_command: SnoozCommandProcessor | None = None
         self._expected_disconnect: bool = False
+        self._last_disconnect_reason: DisconnectionReason | None = None
 
         not_disconnected = [
             SnoozConnectionStatus.CONNECTING,
@@ -154,6 +151,24 @@ class SnoozDevice:
             not_disconnected,
             SnoozConnectionStatus.DISCONNECTED,
             after=self._after_device_disconnected,
+        )
+        self._machine.add_transition(
+            "command_execution_cancelled",
+            [SnoozConnectionStatus.DISCONNECTED, SnoozConnectionStatus.CONNECTED],
+            None,
+            before=lambda _: self._cancel_current_command(),
+        )
+
+        def set_expected_disconnect(expected: bool) -> None:
+            self._expected_disconnect = expected
+
+        self._machine.add_transition(
+            "command_execution_cancelled",
+            SnoozConnectionStatus.CONNECTING,
+            SnoozConnectionStatus.DISCONNECTED,
+            prepare=lambda _: set_expected_disconnect(True),
+            before=lambda _: self._cancel_current_command(),
+            after=lambda _: set_expected_disconnect(False),
         )
 
         self.events.on_connection_load_time += lambda t: _LOGGER.debug(
@@ -255,7 +270,17 @@ class SnoozDevice:
         try:
             await self._async_execute_current_command()
         except CancelledError:
-            command.cancel()
+            self._machine.command_execution_cancelled()
+
+            # when async_disconnect() is called, return a cancelled command
+            # instead of raising since the cancellation is expected by the user
+            if (
+                not self.is_connected
+                and self._last_disconnect_reason == DisconnectionReason.USER
+            ):
+                pass
+            else:
+                raise
 
         result = await command.result
 
@@ -274,7 +299,10 @@ class SnoozDevice:
         command = self._current_command
 
         try:
-            await self._async_wait_for_connection_complete()
+            try:
+                await self._async_wait_for_connection_complete()
+            except CancelledError:
+                raise
 
             async with self._command_lock:
                 if (
@@ -282,9 +310,7 @@ class SnoozDevice:
                     and command is not None
                     and command.state != CommandProcessorState.COMPLETE
                 ):
-                    await command.async_execute(self._api)
-        except SnoozDeviceDisconnectedError:
-            self._machine.device_disconnected(reason=DisconnectionReason.DEVICE)
+                    await command.async_execute(self._api, raise_on_cancel=True)
         except SnoozDeviceUnavailableError:
             self._machine.device_disconnected(
                 reason=DisconnectionReason.DEVICE_UNAVAILABLE
@@ -372,6 +398,11 @@ class SnoozDevice:
 
         return api
 
+    def _cleanup_api(self) -> None:
+        if self._api is not None:
+            self._api.unsubscribe_all_events()
+        self._api = None
+
     async def _async_reconnect(self) -> None:
         await asyncio.sleep(RECONNECTION_DELAY_SECONDS)
         await self._async_execute_current_command()
@@ -401,6 +432,7 @@ class SnoozDevice:
         self._connections_exhausted.clear()
         self._connection_attempts += 1
         self._connection_start_time = datetime.now()
+        self._last_disconnect_reason = None
 
     def _before_device_connected(self) -> None:
         start_time = datetime.now()
@@ -447,9 +479,7 @@ class SnoozDevice:
         )
 
     def _on_device_disconnected(self, e: EventData) -> None:
-        if self._api is not None:
-            self._api.unsubscribe_all_events()
-        self._api = None
+        self._cleanup_api()
 
         last_event = self._connection_ready_time or self._connection_start_time
         if last_event is not None:
@@ -460,6 +490,7 @@ class SnoozDevice:
         self._connection_complete.set()
 
         disconnect_reason: DisconnectionReason = e.kwargs.get("reason")
+        self._last_disconnect_reason = disconnect_reason
 
         # if the disconnection was initiated from the user, don't attempt to reconnect
         if disconnect_reason == DisconnectionReason.USER or self._expected_disconnect:
@@ -515,16 +546,14 @@ class SnoozDevice:
         return get_device_display_name(self.name, self.address)
 
     def __repr__(self) -> str:
-        description = []
+        description: list[str] = []
 
         if self.is_connected:
             state = self.state
             if state is None or state == UnknownSnoozState:
                 description += ["Unknown state"]
             else:
-                description += [
-                    f"{'On' if state.on else 'Off'} at {state.volume}% volume"
-                ]
+                description += [state.__repr__()]
         else:
             description += ["Disconnected"]
 

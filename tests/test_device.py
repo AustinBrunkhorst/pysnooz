@@ -45,6 +45,8 @@ from pysnooz.model import (
 )
 from pysnooz.testing import MockSnoozClient
 
+from . import SUPPORTED_MODELS
+
 
 class SnoozTestFixture:
     def __init__(
@@ -117,8 +119,10 @@ def snooz(
 ) -> SnoozTestFixture:
     model = SnoozDeviceModel.ORIGINAL
 
-    model_marker = request.node.get_closest_marker("model")
-    if model_marker is not None:
+    # if the test is parametrized with a model, use that
+    if "model" in request.fixturenames:
+        model = request.getfixturevalue("model")
+    elif model_marker := request.node.get_closest_marker("model"):
         model = model_marker.args[0]
 
     model_name = (
@@ -375,35 +379,9 @@ async def test_breez_commands(mocker: MockerFixture, snooz: SnoozTestFixture) ->
 
 
 @pytest.mark.asyncio
-async def test_device_info(mocker: MockerFixture, snooz: SnoozTestFixture) -> None:
-    device = snooz.create_device()
-
-    info = await device.async_get_info()
-    assert info is not None
-    assert info.firmware is not None
-    assert info.hardware is not None
-    assert info.manufacturer is not None
-    assert info.model is not None
-    assert info.software is None
-
-
-@pytest.mark.asyncio
-async def test_cancel_device_info(snooz: SnoozTestFixture) -> None:
-    device = snooz.create_device()
-
-    async def takes_a_second(*args, **kwargs):
-        await asyncio.sleep(1)
-
-    snooz.mock_connect.side_effect = takes_a_second
-
-    result = await asyncio.wait_for(device.async_get_info(), timeout=0.1)
-    assert result is None
-
-
-@pytest.mark.asyncio
-@pytest.mark.model(SnoozDeviceModel.BREEZ)
-async def test_device_info_breez(
-    mocker: MockerFixture, snooz: SnoozTestFixture
+@pytest.mark.parametrize("model", SUPPORTED_MODELS)
+async def test_device_info(
+    mocker: MockerFixture, snooz: SnoozTestFixture, model: SnoozDeviceModel
 ) -> None:
     device = snooz.create_device()
 
@@ -413,7 +391,27 @@ async def test_device_info_breez(
     assert info.hardware is not None
     assert info.manufacturer is not None
     assert info.model is not None
-    assert info.software is not None
+
+    if model == SnoozDeviceModel.ORIGINAL:
+        assert info.software is None
+    else:
+        assert info.software is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model", SUPPORTED_MODELS)
+async def test_cancel_device_info(
+    snooz: SnoozTestFixture, model: SnoozDeviceModel
+) -> None:
+    device = snooz.create_device()
+
+    async def takes_a_second(*args, **kwargs):
+        await asyncio.sleep(1)
+
+    snooz.mock_connect.side_effect = takes_a_second
+
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(device.async_get_info(), timeout=0.1)
 
 
 @pytest.mark.asyncio
@@ -1054,17 +1052,112 @@ async def test_manual_disconnect_during_transition(
 
 
 @pytest.mark.asyncio
-async def test_command_cancellation(snooz: SnoozTestFixture) -> None:
+async def test_command_cancellation_before_connection(
+    mocker: MockerFixture, snooz: SnoozTestFixture
+) -> None:
+    on_connection_status_change = mocker.stub()
+
     device = snooz.create_device()
+    device.events.on_connection_status_change += on_connection_status_change
 
     async def takes_a_second(*args, **kwargs):
-        await asyncio.sleep(1)
+        await asyncio.sleep(3)
 
     snooz.mock_connect.side_effect = takes_a_second
 
-    await asyncio.wait_for(
-        snooz.assert_command_cancelled(device, turn_on()), timeout=0.1
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(device.async_execute_command(turn_on()), timeout=1)
+
+    assert not device.is_connected
+    assert on_connection_status_change.mock_calls == [
+        call(SnoozConnectionStatus.CONNECTING),
+        call(SnoozConnectionStatus.DISCONNECTED),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_command_cancellation_during_connection(
+    mocker: MockerFixture, snooz: SnoozTestFixture
+) -> None:
+    mock_authenticate = mocker.patch(
+        "pysnooz.device.SnoozDeviceApi.async_authenticate_connection",
+        autospec=True,
     )
+
+    on_connection_status_change = mocker.stub()
+
+    device = snooz.create_device()
+    device.events.on_connection_status_change += on_connection_status_change
+
+    async def takes_a_second(*args, **kwargs):
+        await asyncio.sleep(3)
+
+    mock_authenticate.side_effect = takes_a_second
+
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(device.async_execute_command(turn_on()), timeout=1)
+
+    assert not device.is_connected
+    assert on_connection_status_change.mock_calls == [
+        call(SnoozConnectionStatus.CONNECTING),
+        call(SnoozConnectionStatus.DISCONNECTED),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_command_cancellation_while_connected(
+    mocker: MockerFixture, snooz: SnoozTestFixture
+) -> None:
+    mock_set_power = mocker.patch(
+        "pysnooz.device.SnoozDeviceApi.async_set_power",
+        autospec=True,
+    )
+    set_power = mocker.stub()
+    on_connection_status_change = mocker.stub()
+
+    device = snooz.create_device()
+    device.events.on_connection_status_change += on_connection_status_change
+
+    async def takes_a_second(*args, **kwargs):
+        await asyncio.sleep(1.5)
+        set_power()
+
+    mock_set_power.side_effect = takes_a_second
+
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(device.async_execute_command(turn_on()), timeout=1)
+
+    assert device.is_connected
+    assert on_connection_status_change.mock_calls == [
+        call(SnoozConnectionStatus.CONNECTING),
+        call(SnoozConnectionStatus.CONNECTED),
+    ]
+    set_power.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_command_cancellation_during_transition(
+    mocker: MockerFixture, snooz: SnoozTestFixture
+) -> None:
+    on_connection_status_change = mocker.stub()
+
+    device = snooz.create_device()
+    device.events.on_connection_status_change += on_connection_status_change
+
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(
+            device.async_execute_command(
+                turn_on(volume=56, duration=timedelta(seconds=2))
+            ),
+            timeout=1,
+        )
+
+    assert device.is_connected
+    assert on_connection_status_change.mock_calls == [
+        call(SnoozConnectionStatus.CONNECTING),
+        call(SnoozConnectionStatus.CONNECTED),
+    ]
+    assert device.state.volume != 56
 
 
 @pytest.mark.asyncio

@@ -208,7 +208,9 @@ class SnoozCommandProcessor(ABC):
     def state(self) -> CommandProcessorState:
         return self._machine.state
 
-    async def async_execute(self, api: SnoozDeviceApi) -> None:
+    async def async_execute(
+        self, api: SnoozDeviceApi, raise_on_cancel: bool = False
+    ) -> None:
         async with self._execute_lock:
             self._execution_task = self.loop.create_task(
                 self._async_execute_wrapper(api), name=f"Execute {self.command}"
@@ -217,7 +219,11 @@ class SnoozCommandProcessor(ABC):
         try:
             await self._execution_task
         except CancelledError:
-            pass
+            if raise_on_cancel and (
+                self.state == CommandProcessorState.EXECUTING
+                or self._result_status == SnoozCommandResultStatus.CANCELLED
+            ):
+                raise
 
     async def _async_execute_wrapper(self, api: SnoozDeviceApi) -> None:
         try:
@@ -333,7 +339,7 @@ class DeviceActionCommand(SnoozCommandProcessor):
         if self.command.action == SnoozDeviceAction.GET_DEVICE_INFO:
             return await api.async_get_info()
 
-        return None
+        raise ValueError(f"Unknown action {self.command.action}")
 
 
 class WriteDeviceStateCommand(SnoozCommandProcessor):
