@@ -56,7 +56,7 @@ class SnoozDeviceState:
     volume: int | None = None
 
     light_on: bool | None = None
-    light_brightness: bool | None = None
+    light_brightness: int | None = None
     night_mode_enabled: bool | None = None
 
     # Breez specific

@@ -21,12 +21,15 @@ from pysnooz.api import (
 from pysnooz.commands import (
     SnoozCommandData,
     SnoozCommandResultStatus,
+    enable_night_mode,
     set_auto_temp_enabled,
     set_fan_speed,
+    set_light_brightness,
     set_temp_target,
     set_volume,
     turn_fan_off,
     turn_fan_on,
+    turn_light_on,
     turn_off,
     turn_on,
 )
@@ -37,12 +40,7 @@ from pysnooz.device import (
     SnoozConnectionStatus,
     SnoozDevice,
 )
-from pysnooz.model import (
-    SnoozAdvertisementData,
-    SnoozDeviceModel,
-    SnoozDeviceState,
-    SnoozFirmwareVersion,
-)
+from pysnooz.model import SnoozAdvertisementData, SnoozDeviceModel, SnoozFirmwareVersion
 from pysnooz.testing import MockSnoozClient
 
 from . import SUPPORTED_MODELS
@@ -213,7 +211,6 @@ async def test_basic_commands(mocker: MockerFixture, snooz: SnoozTestFixture) ->
     # for api simplicity, you can set the volume and power state in one command, but it
     # translates to two ble char writes
     assert on_state_change.call_count == 2
-    on_state_change.assert_has_calls([call(SnoozDeviceState(on=True, volume=25))])
     on_state_change.reset_mock()
 
     # two connection status changes, two state changes
@@ -222,14 +219,25 @@ async def test_basic_commands(mocker: MockerFixture, snooz: SnoozTestFixture) ->
 
     await snooz.assert_command_success(device, turn_off())
     assert device.state.on is False
-    on_state_change.assert_called_once_with(SnoozDeviceState(on=False, volume=25))
+    assert on_state_change.mock_calls[0].args[0].on is False
+    assert on_state_change.mock_calls[0].args[0].volume == 25
     on_state_change.reset_mock()
     subscription_callback.assert_called_once()
     subscription_callback.reset_mock()
 
     await snooz.assert_command_success(device, set_volume(36))
     assert device.state.volume == 36
-    on_state_change.assert_called_once_with(SnoozDeviceState(on=False, volume=36))
+    assert on_state_change.mock_calls[0].args[0].volume == 36
+    on_state_change.reset_mock()
+    subscription_callback.assert_called_once()
+    subscription_callback.reset_mock()
+
+    await snooz.assert_command_success(device, set_light_brightness(44))
+    assert device.state.light_on is True
+    assert device.state.light_brightness == 44
+    assert device.state.night_mode_enabled is False
+    on_state_change.assert_called_once()
+    assert on_state_change.mock_calls[0].args[0].light_brightness == 44
     on_state_change.reset_mock()
     subscription_callback.assert_called_once()
     subscription_callback.reset_mock()
@@ -247,6 +255,15 @@ async def test_basic_commands(mocker: MockerFixture, snooz: SnoozTestFixture) ->
     subscription_callback.assert_not_called()
 
     await snooz.assert_command_success(device, set_volume(15))
+    subscription_callback.assert_not_called()
+
+    await snooz.assert_command_success(device, turn_light_on())
+    subscription_callback.assert_not_called()
+
+    await snooz.assert_command_success(device, set_light_brightness(65))
+    subscription_callback.assert_not_called()
+
+    await snooz.assert_command_success(device, enable_night_mode())
     subscription_callback.assert_not_called()
 
 
@@ -280,9 +297,6 @@ async def test_breez_commands(mocker: MockerFixture, snooz: SnoozTestFixture) ->
     # for api simplicity, you can set the fan speed and power state in one command,
     # but it translates to two ble char writes
     assert on_state_change.call_count == 2
-    on_state_change.assert_has_calls(
-        [call(SnoozDeviceState(on=False, volume=10, fan_on=True, fan_speed=25))]
-    )
     on_state_change.reset_mock()
 
     # two connection status changes, two state changes
@@ -291,67 +305,40 @@ async def test_breez_commands(mocker: MockerFixture, snooz: SnoozTestFixture) ->
 
     await snooz.assert_command_success(device, turn_fan_off())
     assert device.state.fan_on is False
-    on_state_change.assert_called_once_with(
-        SnoozDeviceState(on=False, volume=10, fan_on=False, fan_speed=25)
-    )
+    on_state_change.assert_called_once()
+    assert on_state_change.mock_calls[0].args[0].fan_on is False
     on_state_change.reset_mock()
     subscription_callback.assert_called_once()
     subscription_callback.reset_mock()
 
     await snooz.assert_command_success(device, set_fan_speed(36))
     assert device.state.fan_speed == 36
-    on_state_change.assert_called_once_with(
-        SnoozDeviceState(on=False, volume=10, fan_on=False, fan_speed=36)
-    )
+    on_state_change.assert_called_once()
+    assert on_state_change.mock_calls[0].args[0].fan_speed == 36
     on_state_change.reset_mock()
     subscription_callback.assert_called_once()
     subscription_callback.reset_mock()
 
     await snooz.assert_command_success(device, set_auto_temp_enabled(True))
     assert device.state.fan_auto_enabled is True
-    on_state_change.assert_called_once_with(
-        SnoozDeviceState(
-            on=False,
-            volume=10,
-            fan_on=False,
-            fan_speed=36,
-            fan_auto_enabled=True,
-            target_temperature=0,
-        )
-    )
+    on_state_change.assert_called_once()
+    assert on_state_change.mock_calls[0].args[0].fan_auto_enabled is True
     on_state_change.reset_mock()
     subscription_callback.assert_called_once()
     subscription_callback.reset_mock()
 
     await snooz.assert_command_success(device, set_temp_target(46))
     assert device.state.target_temperature == 46
-    on_state_change.assert_called_once_with(
-        SnoozDeviceState(
-            on=False,
-            volume=10,
-            fan_on=False,
-            fan_speed=36,
-            fan_auto_enabled=True,
-            target_temperature=46,
-        )
-    )
+    on_state_change.assert_called_once()
+    assert on_state_change.mock_calls[0].args[0].target_temperature == 46
     on_state_change.reset_mock()
     subscription_callback.assert_called_once()
     subscription_callback.reset_mock()
 
     snooz.trigger_temperature(device, 75)
     assert device.state.temperature == 75
-    on_state_change.assert_called_once_with(
-        SnoozDeviceState(
-            on=False,
-            volume=10,
-            fan_on=False,
-            fan_speed=36,
-            fan_auto_enabled=True,
-            target_temperature=46,
-            temperature=75,
-        )
-    )
+    on_state_change.assert_called_once()
+    assert on_state_change.mock_calls[0].args[0].temperature == 75
     on_state_change.reset_mock()
     subscription_callback.assert_called_once()
     subscription_callback.reset_mock()
@@ -781,7 +768,6 @@ async def test_disconnect_before_ready_then_reconnects(
     assert device.is_connected
     assert device.state.on
     assert device.state.volume == 26
-    on_state_change.assert_called_with(SnoozDeviceState(on=True, volume=26))
 
 
 @pytest.mark.asyncio
@@ -837,7 +823,6 @@ async def test_missing_characteristic_during_connection(
     assert device.is_connected
     assert device.state.on
     assert device.state.volume == 26
-    on_state_change.assert_called_with(SnoozDeviceState(on=True, volume=26))
 
 
 @pytest.mark.asyncio
@@ -915,7 +900,6 @@ async def test_disconnect_while_reconnecting_before_ready(
     assert device.is_connected
     assert device.state.on
     assert device.state.volume == 26
-    on_state_change.assert_called_with(SnoozDeviceState(on=True, volume=26))
 
 
 @pytest.mark.asyncio

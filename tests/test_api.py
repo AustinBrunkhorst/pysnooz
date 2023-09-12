@@ -133,6 +133,17 @@ async def test_raises_unknown_write_errors(
 
 
 @pytest.mark.asyncio
+async def test_brightness_validation(mocker: MockerFixture) -> None:
+    mock_client = mocker.MagicMock(autospec=MockSnoozClient)
+    api = SnoozDeviceApi(mock_client)
+    with pytest.raises(ValueError):
+        await api.async_set_light_brightness(-10)
+    with pytest.raises(ValueError):
+        await api.async_set_light_brightness(110)
+    mock_client.write_gatt_char.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_volume_validation(mocker: MockerFixture) -> None:
     mock_client = mocker.MagicMock(autospec=MockSnoozClient)
     api = SnoozDeviceApi(mock_client)

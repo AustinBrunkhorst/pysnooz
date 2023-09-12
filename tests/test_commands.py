@@ -14,12 +14,17 @@ from pysnooz.commands import (
     SnoozCommandData,
     SnoozCommandResultStatus,
     create_command_processor,
+    disable_night_mode,
+    enable_night_mode,
     set_auto_temp_enabled,
     set_fan_speed,
+    set_light_brightness,
     set_temp_target,
     set_volume,
     turn_fan_off,
     turn_fan_on,
+    turn_light_off,
+    turn_light_on,
     turn_off,
     turn_on,
 )
@@ -73,6 +78,64 @@ async def test_turn_off(
     await assert_command_success(mock_api, turn_off())
     mock_api.async_set_power.assert_called_once_with(False)
     mock_api.async_set_volume.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_turn_light_on(
+    mocker: MockerFixture, assert_command_success: AssertCommandTest
+) -> None:
+    mock_api = mocker.MagicMock(spec=SnoozDeviceApi)
+
+    await assert_command_success(mock_api, turn_light_on())
+    mock_api.async_set_light_brightness.assert_called_once_with(100)
+
+    mock_api.reset_mock()
+
+    await assert_command_success(mock_api, turn_light_on(brightness=30))
+    mock_api.async_set_light_brightness.assert_called_once_with(30)
+
+
+@pytest.mark.asyncio
+async def test_set_light_brightness(
+    mocker: MockerFixture, assert_command_success: AssertCommandTest
+) -> None:
+    mock_api = mocker.MagicMock(spec=SnoozDeviceApi)
+
+    await assert_command_success(mock_api, set_light_brightness(5))
+    mock_api.async_set_light_brightness.assert_called_once_with(5)
+
+
+@pytest.mark.asyncio
+async def test_turn_light_off(
+    mocker: MockerFixture,
+    assert_command_success: AssertCommandTest,
+) -> None:
+    mock_api = mocker.MagicMock(spec=SnoozDeviceApi)
+
+    await assert_command_success(mock_api, turn_light_off())
+    mock_api.async_set_light_brightness.assert_called_once_with(0)
+
+
+@pytest.mark.asyncio
+async def test_enable_night_mode(
+    mocker: MockerFixture,
+    assert_command_success: AssertCommandTest,
+) -> None:
+    mock_api = mocker.MagicMock(spec=SnoozDeviceApi)
+
+    await assert_command_success(mock_api, enable_night_mode())
+    mock_api.async_set_night_mode_enabled.assert_called_once_with(True)
+
+
+@pytest.mark.asyncio
+async def test_disable_night_mode(
+    mocker: MockerFixture,
+    assert_command_success: AssertCommandTest,
+) -> None:
+    mock_api = mocker.MagicMock(spec=SnoozDeviceApi)
+
+    await assert_command_success(mock_api, disable_night_mode())
+    mock_api.async_set_night_mode_enabled.assert_called_once_with(False)
 
 
 @pytest.mark.asyncio
