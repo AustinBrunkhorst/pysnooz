@@ -28,6 +28,10 @@ class SnoozCommandData:
     on: bool | None = None
     volume: int | None = None
 
+    light_on: bool | None = None
+    light_brightness: int | None = None
+    night_mode_enabled: bool | None = None
+
     # duration to transition target values
     duration: timedelta | None = None
 
@@ -43,10 +47,21 @@ class SnoozCommandData:
         operations: list[str] = []
 
         if self.on is not None:
-            operations += ["TurnOn"] if self.on else ["TurnOff"]
+            operations += [f"Turn {'Off' if self.on else 'Disable'}AutoTemp"]
 
         if self.fan_on is not None:
             operations += ["TurnOnFan"] if self.fan_on else ["TurnOffFan"]
+
+        if self.light_on is not None:
+            operations += ["TurnOnLight"] if self.light_on else ["TurnOffLight"]
+
+        if self.light_brightness is not None:
+            operations += [f"SetLightBrightness({self.light_brightness})"]
+
+        if self.night_mode_enabled is not None:
+            operations += [
+                f"{'Enable' if self.night_mode_enabled else 'Disable'}NightMode"
+            ]
 
         if self.volume is not None:
             operations += [f"SetVolume({self.volume}%)"]
@@ -87,6 +102,26 @@ def set_volume(volume: int) -> SnoozCommandData:
 
 def get_device_info() -> SnoozCommandData:
     return SnoozCommandData(action=SnoozDeviceAction.GET_DEVICE_INFO)
+
+
+def turn_light_on(brightness: int | None = None) -> SnoozCommandData:
+    return SnoozCommandData(light_on=True, light_brightness=brightness)
+
+
+def turn_light_off() -> SnoozCommandData:
+    return SnoozCommandData(light_on=False)
+
+
+def set_light_brightness(brightness: int) -> SnoozCommandData:
+    return SnoozCommandData(light_brightness=brightness)
+
+
+def enable_night_mode() -> SnoozCommandData:
+    return SnoozCommandData(night_mode_enabled=True)
+
+
+def disable_night_mode() -> SnoozCommandData:
+    return SnoozCommandData(night_mode_enabled=False)
 
 
 # Breez only commands
@@ -357,6 +392,15 @@ class WriteDeviceStateCommand(SnoozCommandProcessor):
         if self.command.temp_target is not None:
             await api.async_set_auto_temp_enabled(True)
             await api.async_set_auto_temp_threshold(self.command.temp_target)
+
+        if self.command.night_mode_enabled is not None:
+            await api.async_set_night_mode_enabled(self.command.night_mode_enabled)
+        elif self.command.light_on is True:
+            await api.async_set_light_brightness(self.command.light_brightness or 100)
+        elif self.command.light_on is False:
+            await api.async_set_light_brightness(0)
+        elif self.command.light_brightness is not None:
+            await api.async_set_light_brightness(self.command.light_brightness)
 
 
 class DeviceFeatureControls(ABC):

@@ -199,6 +199,17 @@ class SnoozDeviceApi:
     async def async_set_power(self, on: bool) -> None:
         await self._async_write_state(bytes([Command.MOTOR_ENABLED, 1 if on else 0]))
 
+    async def async_set_light_brightness(self, brightness: int) -> None:
+        if brightness < 0 or brightness > 100:
+            raise ValueError(f"Brightness must be between 0 and 100 - got {brightness}")
+
+        await self._async_write_state(
+            bytes([Command.NIGHTLIGHT, 1, brightness, brightness])
+        )
+
+    async def async_set_night_mode_enabled(self, on: bool) -> None:
+        await self._async_write_state(bytes([Command.NIGHTLIGHT, 0 if on else 1, 0, 0]))
+
     async def async_set_fan_power(self, on: bool) -> None:
         await self._async_write_state(bytes([Command.FAN_ENABLED, 1 if on else 0]))
 
@@ -316,11 +327,23 @@ def unpack_response_command(command: ResponseCommand, data: bytes) -> SnoozDevic
 
 
 def unpack_state(data: bytes) -> SnoozDeviceState:
-    (volume, on, fan_speed, fan_on) = struct.unpack("<BBxBB", data[0:5])
+    (
+        volume,
+        on,
+        fan_speed,
+        fan_on,
+        light_flag,
+        light_brightness,
+    ) = struct.unpack("<BBxBBxxxxxxxxxxxBBxx", data)
+
+    light_enabled = bool(light_flag)
 
     return SnoozDeviceState(
         volume=volume,
         on=bool(on),
         fan_on=bool(fan_on),
         fan_speed=fan_speed,
+        light_on=light_enabled and light_brightness > 0,
+        light_brightness=light_brightness,
+        night_mode_enabled=not light_enabled and light_brightness == 0,
     )
