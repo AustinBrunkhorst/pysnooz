@@ -71,11 +71,17 @@ def test_repr() -> None:
         SnoozDeviceState(
             on=False, volume=15, light_on=True, light_brightness=55
         ).__repr__()
-        == "Snooz(Noise Off at 15% volume, Light at 55% brightness)"
+        == "Snooz(Noise Off at 15% volume, Light is 55%)"
     )
     assert (
         SnoozDeviceState(on=False, volume=15, night_mode_enabled=True).__repr__()
         == "Snooz(Noise Off at 15% volume, [NightMode])"
+    )
+    assert (
+        SnoozDeviceState(
+            on=False, volume=15, night_mode_enabled=True, night_mode_brightness=15
+        ).__repr__()
+        == "Snooz(Noise Off at 15% volume, [NightMode(15%)])"
     )
     assert (
         SnoozDeviceState(on=False, volume=15, fan_on=True, fan_speed=32).__repr__()

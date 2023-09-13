@@ -2,7 +2,7 @@ import time
 from asyncio import AbstractEventLoop, CancelledError, gather, sleep
 from datetime import datetime, timedelta
 from typing import Awaitable, Callable, Coroutine
-from unittest.mock import MagicMock, call
+from unittest.mock import ANY, MagicMock, call
 
 import pytest
 from pytest_mock import MockerFixture
@@ -124,7 +124,11 @@ async def test_enable_night_mode(
     mock_api = mocker.MagicMock(spec=SnoozDeviceApi)
 
     await assert_command_success(mock_api, enable_night_mode())
-    mock_api.async_set_night_mode_enabled.assert_called_once_with(True)
+    mock_api.async_set_night_mode_enabled.assert_called_once_with(True, ANY)
+
+    mock_api.reset_mock()
+    await assert_command_success(mock_api, enable_night_mode(32))
+    mock_api.async_set_night_mode_enabled.assert_called_once_with(True, 32)
 
 
 @pytest.mark.asyncio
@@ -135,7 +139,7 @@ async def test_disable_night_mode(
     mock_api = mocker.MagicMock(spec=SnoozDeviceApi)
 
     await assert_command_success(mock_api, disable_night_mode())
-    mock_api.async_set_night_mode_enabled.assert_called_once_with(False)
+    mock_api.async_set_night_mode_enabled.assert_called_once_with(False, ANY)
 
 
 @pytest.mark.asyncio

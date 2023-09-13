@@ -242,6 +242,18 @@ async def test_basic_commands(mocker: MockerFixture, snooz: SnoozTestFixture) ->
     subscription_callback.assert_called_once()
     subscription_callback.reset_mock()
 
+    await snooz.assert_command_success(device, enable_night_mode(80))
+    assert device.state.light_on is False
+    assert device.state.light_brightness == 0
+    assert device.state.night_mode_enabled is True
+    assert device.state.night_mode_brightness == 80
+    on_state_change.assert_called_once()
+    assert on_state_change.mock_calls[0].args[0].night_mode_enabled is True
+    assert on_state_change.mock_calls[0].args[0].night_mode_brightness == 80
+    on_state_change.reset_mock()
+    subscription_callback.assert_called_once()
+    subscription_callback.reset_mock()
+
     # no other status changes should have occurred
     on_connection_status_change.assert_not_called()
 

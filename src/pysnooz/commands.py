@@ -31,6 +31,7 @@ class SnoozCommandData:
     light_on: bool | None = None
     light_brightness: int | None = None
     night_mode_enabled: bool | None = None
+    night_mode_brightness: int | None = None
 
     # duration to transition target values
     duration: timedelta | None = None
@@ -59,9 +60,14 @@ class SnoozCommandData:
             operations += [f"SetLightBrightness({self.light_brightness})"]
 
         if self.night_mode_enabled is not None:
-            operations += [
+            night_mode = (
                 f"{'Enable' if self.night_mode_enabled else 'Disable'}NightMode"
-            ]
+            )
+
+            if self.night_mode_brightness is not None:
+                night_mode += f"({self.night_mode_brightness}%)"
+
+            operations += [night_mode]
 
         if self.volume is not None:
             operations += [f"SetVolume({self.volume}%)"]
@@ -116,8 +122,8 @@ def set_light_brightness(brightness: int) -> SnoozCommandData:
     return SnoozCommandData(light_brightness=brightness)
 
 
-def enable_night_mode() -> SnoozCommandData:
-    return SnoozCommandData(night_mode_enabled=True)
+def enable_night_mode(brightness: int | None = None) -> SnoozCommandData:
+    return SnoozCommandData(night_mode_enabled=True, night_mode_brightness=brightness)
 
 
 def disable_night_mode() -> SnoozCommandData:
@@ -394,7 +400,10 @@ class WriteDeviceStateCommand(SnoozCommandProcessor):
             await api.async_set_auto_temp_threshold(self.command.temp_target)
 
         if self.command.night_mode_enabled is not None:
-            await api.async_set_night_mode_enabled(self.command.night_mode_enabled)
+            await api.async_set_night_mode_enabled(
+                self.command.night_mode_enabled,
+                self.command.night_mode_brightness or 100,
+            )
         elif self.command.light_on is True:
             await api.async_set_light_brightness(self.command.light_brightness or 100)
         elif self.command.light_on is False:
