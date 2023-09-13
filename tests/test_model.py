@@ -31,6 +31,12 @@ def test_state_operators() -> None:
     assert SnoozDeviceState(fan_on=False, fan_speed=13) != SnoozDeviceState(
         fan_on=False, fan_speed=15
     )
+    assert SnoozDeviceState(light_on=True, light_brightness=15) == SnoozDeviceState(
+        light_on=True, light_brightness=15
+    )
+    assert SnoozDeviceState(light_on=True, light_brightness=15) != SnoozDeviceState(
+        light_on=True, light_brightness=None
+    )
 
     assert SnoozDeviceState(
         on=True,
@@ -60,6 +66,22 @@ def test_repr() -> None:
     assert (
         SnoozDeviceState(on=False, volume=15).__repr__()
         == "Snooz(Noise Off at 15% volume)"
+    )
+    assert (
+        SnoozDeviceState(
+            on=False, volume=15, light_on=True, light_brightness=55
+        ).__repr__()
+        == "Snooz(Noise Off at 15% volume, Light is 55%)"
+    )
+    assert (
+        SnoozDeviceState(on=False, volume=15, night_mode_enabled=True).__repr__()
+        == "Snooz(Noise Off at 15% volume, [NightMode])"
+    )
+    assert (
+        SnoozDeviceState(
+            on=False, volume=15, night_mode_enabled=True, night_mode_brightness=15
+        ).__repr__()
+        == "Snooz(Noise Off at 15% volume, [NightMode(15%)])"
     )
     assert (
         SnoozDeviceState(on=False, volume=15, fan_on=True, fan_speed=32).__repr__()

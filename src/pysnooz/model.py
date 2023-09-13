@@ -55,6 +55,11 @@ class SnoozDeviceState:
     on: bool | None = None
     volume: int | None = None
 
+    light_on: bool | None = None
+    light_brightness: int | None = None
+    night_mode_enabled: bool | None = None
+    night_mode_brightness: int | None = None
+
     # Breez specific
     fan_on: bool | None = None
     fan_speed: int | None = None
@@ -67,6 +72,17 @@ class SnoozDeviceState:
             return "Snooz(Unknown)"
 
         attributes = [f"Noise {'On' if self.on else 'Off'} at {self.volume}% volume"]
+
+        if self.night_mode_enabled is True:
+            brightness = ""
+
+            if self.night_mode_brightness is not None:
+                brightness += f"({self.night_mode_brightness}%)"
+
+            attributes += [f"[NightMode{brightness}]"]
+        elif self.light_on is True and self.light_brightness is not None:
+            attributes += [f"Light is {self.light_brightness}%"]
+
         fan_attrs: list[str] = []
 
         if self.fan_on is not None:

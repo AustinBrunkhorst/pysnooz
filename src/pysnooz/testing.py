@@ -249,6 +249,13 @@ class MockSnoozClient(BleakClientWithServiceCache):
                 self._state.on = unpack_bool(data[1])
             elif command == Command.MOTOR_SPEED:
                 self._state.volume = max(0, min(100, int(data[1])))
+            elif command == Command.NIGHTLIGHT:
+                light_brightness = max(0, min(100, int(data[2])))
+                night_mode_enabled = not unpack_bool(data[1]) and light_brightness == 0
+                self._state.night_mode_enabled = night_mode_enabled
+                self._state.light_brightness = light_brightness
+                self._state.light_on = not night_mode_enabled and light_brightness > 0
+                self._state.night_mode_brightness = max(0, min(100, int(data[3])))
             elif command == Command.FAN_ENABLED:
                 self._state.fan_on = unpack_bool(data[1])
             elif command == Command.FAN_SPEED:
@@ -317,10 +324,14 @@ def pack_state(state: SnoozDeviceState) -> bytearray:
         [
             state.volume or 0x00,
             pack_bool(state.on),
-            0x00,
+            state.light_brightness or 0x00,
             state.fan_speed or 0x00,
             pack_bool(state.fan_on),
-            *([0] * 15),
+            *([0] * 11),
+            not pack_bool(state.night_mode_enabled),
+            state.light_brightness or 0x00,
+            state.night_mode_brightness or 0x00,
+            not pack_bool(state.night_mode_enabled),
         ]
     )
 
