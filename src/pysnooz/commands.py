@@ -48,7 +48,7 @@ class SnoozCommandData:
         operations: list[str] = []
 
         if self.on is not None:
-            operations += [f"Turn {'Off' if self.on else 'Disable'}AutoTemp"]
+            operations += ["TurnOn"] if self.on else ["TurnOff"]
 
         if self.fan_on is not None:
             operations += ["TurnOnFan"] if self.fan_on else ["TurnOffFan"]
