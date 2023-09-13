@@ -2,6 +2,25 @@
 
 
 
+## v0.10.0 (2023-09-13)
+
+### Feature
+
+* feat: button light controls (#17)
+
+* feat: light controls
+
+* test: lights and night mode
+
+* feat: night mode brightness configurable
+
+* fix: light on state
+
+* revert: command repr
+
+* docs: add light commands to readme ([`ee76bed`](https://github.com/AustinBrunkhorst/pysnooz/commit/ee76bedc64c9b466bc34cdfd30eb787218bc6a6a))
+
+
 ## v0.9.2 (2023-09-11)
 
 ### Fix
