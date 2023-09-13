@@ -203,7 +203,7 @@ class SnoozDeviceApi:
         if brightness < 0 or brightness > 100:
             raise ValueError(f"Brightness must be between 0 and 100 - got {brightness}")
 
-        button_triggered_brightness = brightness + 10
+        button_triggered_brightness = 0 if brightness == 0 else brightness + 10
         await self._async_write_state(
             bytes(
                 [
@@ -356,7 +356,7 @@ def unpack_state(data: bytes) -> SnoozDeviceState:
         on=bool(on),
         fan_on=bool(fan_on),
         fan_speed=fan_speed,
-        light_on=not night_mode_enabled,
+        light_on=not night_mode_enabled and light_brightness > 0,
         light_brightness=light_brightness,
         night_mode_enabled=night_mode_enabled,
         night_mode_brightness=night_mode_brightness,

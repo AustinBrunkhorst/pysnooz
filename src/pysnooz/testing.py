@@ -254,7 +254,7 @@ class MockSnoozClient(BleakClientWithServiceCache):
                 night_mode_enabled = not unpack_bool(data[1]) and light_brightness == 0
                 self._state.night_mode_enabled = night_mode_enabled
                 self._state.light_brightness = light_brightness
-                self._state.light_on = not night_mode_enabled
+                self._state.light_on = not night_mode_enabled and light_brightness > 0
                 self._state.night_mode_brightness = max(0, min(100, int(data[3])))
             elif command == Command.FAN_ENABLED:
                 self._state.fan_on = unpack_bool(data[1])

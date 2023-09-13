@@ -29,6 +29,7 @@ from pysnooz.commands import (
     set_volume,
     turn_fan_off,
     turn_fan_on,
+    turn_light_off,
     turn_light_on,
     turn_off,
     turn_on,
@@ -238,6 +239,18 @@ async def test_basic_commands(mocker: MockerFixture, snooz: SnoozTestFixture) ->
     assert device.state.night_mode_enabled is False
     on_state_change.assert_called_once()
     assert on_state_change.mock_calls[0].args[0].light_brightness == 44
+    on_state_change.reset_mock()
+    subscription_callback.assert_called_once()
+    subscription_callback.reset_mock()
+
+    await snooz.assert_command_success(device, turn_light_off())
+    assert device.state.light_on is False
+    assert device.state.light_brightness == 0
+    assert device.state.night_mode_enabled is False
+    on_state_change.assert_called_once()
+    assert on_state_change.mock_calls[0].args[0].light_on is False
+    assert on_state_change.mock_calls[0].args[0].light_brightness == 0
+    assert on_state_change.mock_calls[0].args[0].night_mode_enabled is False
     on_state_change.reset_mock()
     subscription_callback.assert_called_once()
     subscription_callback.reset_mock()
