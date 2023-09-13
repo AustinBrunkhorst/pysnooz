@@ -40,14 +40,20 @@ from pysnooz.device import (
   SnoozAdvertisementData,
   SnoozDevice,
   SnoozCommandResultStatus,
-  turn_on,
-  turn_off,
-  set_volume,
-  turn_fan_on,
-  turn_fan_off,
-  set_fan_speed,
+  disable_night_mode,
+  enable_night_mode,
+  get_device_info,
   set_auto_temp_enabled,
-  set_temp_target
+  set_fan_speed,
+  set_light_brightness,
+  set_temp_target,
+  set_volume,
+  turn_fan_off,
+  turn_fan_on,
+  turn_light_off,
+  turn_light_on,
+  turn_off,
+  turn_on,
 )
 
 # found with discovery
@@ -64,6 +70,11 @@ await device.async_execute_command(turn_off(duration=timedelta(seconds=10)))
 
 other_commands = [
   set_volume(50, duration=timedelta(seconds=10)),
+  set_light_brightness(75),
+  turn_light_on(),
+  turn_light_off(),
+  enable_night_mode(),
+  disable_night_mode(),
 
   # the following commands are only supported by Breez
   set_fan_speed(33, duration=timedelta(seconds=10)),
