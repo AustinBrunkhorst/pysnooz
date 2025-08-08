@@ -25,7 +25,7 @@ DBUS_ERROR_UNKNOWN = BleakDBusError("org.bluez.Error.SomethingNotHandled", [])
 @pytest.fixture()
 def mock_client() -> MockSnoozClient:
     return MockSnoozClient(
-        BLEDevice("Snooz-ABCD", "00:00:00:00:12:34", [], 0), SnoozDeviceModel.ORIGINAL
+        BLEDevice("Snooz-ABCD", "00:00:00:00:12:34", []), SnoozDeviceModel.ORIGINAL
     )
 
 

@@ -127,7 +127,7 @@ def snooz(
     model_name = (
         MODEL_NAME_BREEZ if model == SnoozDeviceModel.BREEZ else MODEL_NAME_SNOOZ
     )
-    device = BLEDevice("AA:BB:CC:DD:EE:FF", f"{model_name}-EEFF", [], 0)
+    device = BLEDevice("AA:BB:CC:DD:EE:FF", f"{model_name}-EEFF", [])
     password = "AABBCCDDEEFF"
     adv_data = SnoozAdvertisementData(
         model,

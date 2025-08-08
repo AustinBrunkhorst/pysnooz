@@ -22,7 +22,7 @@ from pysnooz.testing import MockSnoozClient, MockSnoozDevice
 
 from . import SUPPORTED_MODELS
 
-TEST_BLE_DEVICE = BLEDevice("00:00:00:00:AB:CD", "Snooz-ABCD", [], 0)
+TEST_BLE_DEVICE = BLEDevice("00:00:00:00:AB:CD", "Snooz-ABCD", [])
 
 
 @pytest.mark.asyncio
