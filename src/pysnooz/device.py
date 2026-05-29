@@ -227,9 +227,6 @@ class SnoozDevice:
         return unsubscribe
 
     async def async_disconnect(self) -> None:
-        if self.connection_status == SnoozConnectionStatus.DISCONNECTED:
-            return
-
         self._expected_disconnect = True
         try:
             self._cancel_current_command()
@@ -246,7 +243,8 @@ class SnoozDevice:
             if self._api is not None:
                 await self._api.async_disconnect()
 
-            self._machine.device_disconnected(reason=DisconnectionReason.USER)
+            if self.connection_status != SnoozConnectionStatus.DISCONNECTED:
+                self._machine.device_disconnected(reason=DisconnectionReason.USER)
         finally:
             self._expected_disconnect = False
 
