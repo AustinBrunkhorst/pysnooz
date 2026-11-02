@@ -128,15 +128,19 @@ class SnoozDeviceApi:
         self._client = client
         self._write_lock = Lock()
         self._ = format_log_message or (lambda msg: msg)
+        # only the state characteristics are required to control a device.
+        # Everything else is optional so that a device missing a characteristic
+        # (older firmware, services cache out of date) can still be connected to.
         self._read_state_char = CharacteristicReference(READ_STATE_CHARACTERISTIC)
-        self._read_command_char = CharacteristicReference(READ_COMMAND_CHARACTERISTIC)
         self._write_state_char = CharacteristicReference(WRITE_STATE_CHARACTERISTIC)
+        self._read_command_char = CharacteristicReference(
+            READ_COMMAND_CHARACTERISTIC, required=False
+        )
         self._info_chars = [
-            CharacteristicReference(MANUFACTURER_NAME_CHARACTERISTIC),
-            CharacteristicReference(MODEL_NUMBER_CHARACTERISTIC),
-            CharacteristicReference(HARDWARE_REVISION_CHARACTERISTIC),
-            CharacteristicReference(FIRMWARE_REVISION_CHARACTERISTIC),
-            # Older Snooz devices don't have this
+            CharacteristicReference(MANUFACTURER_NAME_CHARACTERISTIC, required=False),
+            CharacteristicReference(MODEL_NUMBER_CHARACTERISTIC, required=False),
+            CharacteristicReference(HARDWARE_REVISION_CHARACTERISTIC, required=False),
+            CharacteristicReference(FIRMWARE_REVISION_CHARACTERISTIC, required=False),
             CharacteristicReference(SOFTWARE_REVISION_CHARACTERISTIC, required=False),
         ]
         self._required_chars = [
@@ -189,7 +193,7 @@ class SnoozDeviceApi:
                 value = (await client.read_gatt_char(char)).decode().split("\0")[0]
             string_props.append(value)
 
-        return SnoozDeviceCharacteristicData(*string_props)  # type: ignore
+        return SnoozDeviceCharacteristicData(*string_props)
 
     async def async_authenticate_connection(self, password: str) -> None:
         await self._async_write_state(
@@ -280,9 +284,10 @@ class SnoozDeviceApi:
 
             self.events.on_state_patched(unpack_response_command(command, payload))
 
-        await client.start_notify(
-            self._read_command_char.get(client), on_response_command
-        )
+        # not every device exposes the command characteristic. It's only used
+        # for Breez fan/temperature responses, so skip it when it's missing.
+        if (read_command_char := self._read_command_char.get(client)) is not None:
+            await client.start_notify(read_command_char, on_response_command)
 
     async def async_request_other_settings(self) -> None:
         await self._async_write_state(bytes([Command.REQUEST_OTHER_SETTINGS]))
@@ -327,7 +332,7 @@ def unpack_response_command(command: ResponseCommand, data: bytes) -> SnoozDevic
     result = SnoozDeviceState()
 
     if command == ResponseCommand.SEND_OTHER_SETTINGS:
-        (auto_enabled, target_temperature) = struct.unpack("<xxxxxxxxxxBB", data[0:12])
+        auto_enabled, target_temperature = struct.unpack("<xxxxxxxxxxBB", data[0:12])
 
         result.fan_auto_enabled = bool(auto_enabled)
         result.target_temperature = target_temperature

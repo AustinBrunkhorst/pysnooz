@@ -9,6 +9,8 @@ from pysnooz.const import (
     FIRMWARE_PAIRING_FLAGS,
     FIRMWARE_VERSION_BY_FLAGS,
     MODEL_NAME_BREEZ,
+    MODEL_NAME_SNOOZ_PRO,
+    ORIGINAL_FIRMWARE_VERSIONS,
     SNOOZ_ADVERTISEMENT_LENGTH,
     SUPPORTED_MODEL_NAMES,
 )
@@ -81,28 +83,27 @@ def get_device_model(
 ) -> SnoozDeviceModel:
     known = match_known_device_name(advertised_name)
 
-    # The advertised name is in the format "Snooz-XXXX" or "Breez-XXXX"
-    # we require this format since the name stored in device characteristics
-    # is always "Snooz" and matching it would not correctly identify Breez models
-    if known is None or len(advertised_name) != len(known) + 5:
+    # Devices normally advertise a name like "Snooz-XXXX" or "Breez-XXXX", but
+    # the name seen by a client isn't guaranteed to be in that format: the name
+    # stored in the device name characteristic is "Snooz" for every model (and
+    # some stacks report that instead of the advertised name after connecting),
+    # and a Pro model has been observed with the name "Szpro EF22". Anything
+    # that starts with a known name is accepted so a device can always be set up.
+    if known is None:
         return SnoozDeviceModel.UNSUPPORTED
 
-    if firmware in [
-        SnoozFirmwareVersion.V2,
-        SnoozFirmwareVersion.V3,
-        SnoozFirmwareVersion.V4,
-        SnoozFirmwareVersion.V5,
-    ]:
+    if known == MODEL_NAME_BREEZ:
+        return SnoozDeviceModel.BREEZ
+
+    if known == MODEL_NAME_SNOOZ_PRO:
+        return SnoozDeviceModel.PRO
+
+    # "Snooz" is advertised by both the original and Pro models, so the
+    # firmware version is the only way to tell them apart
+    if firmware in ORIGINAL_FIRMWARE_VERSIONS:
         return SnoozDeviceModel.ORIGINAL
 
-    if firmware == SnoozFirmwareVersion.V6:
-        return (
-            SnoozDeviceModel.BREEZ
-            if known == MODEL_NAME_BREEZ
-            else SnoozDeviceModel.PRO
-        )
-
-    return SnoozDeviceModel.UNSUPPORTED
+    return SnoozDeviceModel.PRO
 
 
 def get_device_display_name(advertised_name: str, address: str) -> str:
