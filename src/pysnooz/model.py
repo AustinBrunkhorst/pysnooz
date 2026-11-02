@@ -28,10 +28,11 @@ class SnoozFirmwareVersion(IntEnum):
 
 @dataclass
 class SnoozDeviceCharacteristicData:
-    manufacturer: str
-    model: str
-    hardware: str
-    firmware: str
+    # any of these can be None when the device doesn't expose the characteristic
+    manufacturer: str | None
+    model: str | None
+    hardware: str | None
+    firmware: str | None
     software: str | None
 
 

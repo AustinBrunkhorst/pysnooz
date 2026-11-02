@@ -14,7 +14,12 @@ from pysnooz.api import (
     SnoozDeviceApi,
     unpack_response_command,
 )
-from pysnooz.model import SnoozDeviceModel, SnoozDeviceState
+from pysnooz.const import READ_COMMAND_CHARACTERISTIC
+from pysnooz.model import (
+    SnoozDeviceCharacteristicData,
+    SnoozDeviceModel,
+    SnoozDeviceState,
+)
 from pysnooz.testing import MockSnoozClient
 
 DBUS_ERROR = BleakDBusError("org.bluez.Error", [])
@@ -189,8 +194,25 @@ async def test_missing_characteristics(mock_client: MockSnoozClient) -> None:
     with pytest.raises(MissingCharacteristicError):
         await api.async_read_state()
 
-    with pytest.raises(MissingCharacteristicError):
-        await api.async_get_info()
+    # device info characteristics are optional
+    assert await api.async_get_info() == SnoozDeviceCharacteristicData(
+        None, None, None, None, None
+    )
+
+
+@pytest.mark.asyncio
+async def test_optional_command_characteristic(mock_client: MockSnoozClient) -> None:
+    original_get_char = mock_client._services.get_characteristic.side_effect
+    mock_client._services.get_characteristic.side_effect = lambda uuid: (
+        None if uuid == READ_COMMAND_CHARACTERISTIC else original_get_char(uuid)
+    )
+
+    api = SnoozDeviceApi()
+    api.load_client(mock_client)
+    await api.async_subscribe()
+
+    assert mock_client._state_char_callback is not None
+    assert mock_client._command_char_callback is None
 
 
 def test_unpack_response_command() -> None:

@@ -38,14 +38,19 @@ FIRMWARE_VERSION_BY_FLAGS = {
     0x34: SnoozFirmwareVersion.V14,
     0x38: SnoozFirmwareVersion.V15,
 }
-SUPPORTED_FIRMWARE_VERSIONS = [
+# every firmware version that can be parsed from an advertisement is supported.
+# The firmware version is only used to tell the original model apart from the
+# Pro model when both advertise the same name.
+SUPPORTED_FIRMWARE_VERSIONS = list(SnoozFirmwareVersion)
+ORIGINAL_FIRMWARE_VERSIONS = [
     SnoozFirmwareVersion.V2,
     SnoozFirmwareVersion.V3,
     SnoozFirmwareVersion.V4,
     SnoozFirmwareVersion.V5,
-    SnoozFirmwareVersion.V6,
 ]
 
 MODEL_NAME_SNOOZ = "Snooz"
+# a Pro model has been observed with the name "Szpro EF22"
+MODEL_NAME_SNOOZ_PRO = "Szpro"
 MODEL_NAME_BREEZ = "Breez"
-SUPPORTED_MODEL_NAMES = [MODEL_NAME_SNOOZ, MODEL_NAME_BREEZ]
+SUPPORTED_MODEL_NAMES = [MODEL_NAME_SNOOZ, MODEL_NAME_SNOOZ_PRO, MODEL_NAME_BREEZ]
