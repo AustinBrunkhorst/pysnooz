@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from asyncio import AbstractEventLoop, CancelledError, Future, Lock, Task
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import Enum, IntEnum
 from typing import Any, Callable
@@ -44,8 +44,15 @@ class SnoozCommandData:
 
     action: SnoozDeviceAction | None = None
 
+    # turn the noise on or off based on the state the device is in, or the
+    # state an in-progress command is transitioning it to. See toggle()
+    toggle: bool | None = None
+
     def __repr__(self) -> str:
         operations: list[str] = []
+
+        if self.toggle:
+            operations += ["Toggle"]
 
         if self.on is not None:
             operations += ["TurnOn"] if self.on else ["TurnOff"]
@@ -100,6 +107,18 @@ def turn_on(
 
 def turn_off(duration: timedelta | None = None) -> SnoozCommandData:
     return SnoozCommandData(on=False, duration=duration)
+
+
+def toggle(
+    volume: int | None = None, duration: timedelta | None = None
+) -> SnoozCommandData:
+    """Turn the noise on or off, depending on its current state.
+
+    When a command is still in progress, the state it's transitioning to is
+    what gets toggled, so a running transition is reversed from where it is.
+    The volume only applies when the result is turning on.
+    """
+    return SnoozCommandData(toggle=True, volume=volume, duration=duration)
 
 
 def set_volume(volume: int) -> SnoozCommandData:
@@ -183,10 +202,15 @@ class SnoozCommandProcessor(ABC):
         command: SnoozCommandData,
         start_time: datetime,
         result: Future[SnoozCommandResult],
+        pending_power: bool | None = None,
     ) -> None:
         self.loop = loop
         self._ = _
         self.command = command
+        # power state the command this one replaced was driving the noise to
+        self.pending_power = pending_power
+        # power state this command is driving the noise to, once known
+        self.resolved_power: bool | None = command.on
         self.start_time = start_time
         self.last_disconnect_time: datetime | None = None
         self.result = result
@@ -290,6 +314,32 @@ class SnoozCommandProcessor(ABC):
             )
             self.on_unhandled_exception()
 
+    def _resolve_toggle(self, current_state: SnoozDeviceState) -> None:
+        """Turn a toggle into an explicit power command, once."""
+        if not self.command.toggle:
+            return
+
+        effective = (
+            self.pending_power if self.pending_power is not None else current_state.on
+        )
+        # when nothing is known about the device, assume it's off
+        target = True if effective is None else not effective
+
+        _LOGGER.debug(
+            self._(
+                f"Toggle resolved to {'on' if target else 'off'}"
+                f" (pending: {self.pending_power}, current: {current_state.on})"
+            )
+        )
+
+        self.command = replace(
+            self.command,
+            toggle=None,
+            on=target,
+            volume=self.command.volume if target else None,
+        )
+        self.resolved_power = target
+
     def _before_execution_start(self, **kwargs: Any) -> None:
         _LOGGER.debug(self._(f"Executing {self.command}"))
 
@@ -356,6 +406,7 @@ def create_command_processor(
     start_time: datetime,
     data: SnoozCommandData,
     format_log_message: Callable[[str], str] | None = None,
+    pending_power: bool | None = None,
 ) -> SnoozCommandProcessor:
     cls: type[SnoozCommandProcessor] | None = None
 
@@ -369,7 +420,12 @@ def create_command_processor(
     result = loop.create_future()
 
     return cls(
-        loop, format_log_message or default_log_formatter, data, start_time, result
+        loop,
+        format_log_message or default_log_formatter,
+        data,
+        start_time,
+        result,
+        pending_power=pending_power,
     )
 
 
@@ -385,6 +441,9 @@ class DeviceActionCommand(SnoozCommandProcessor):
 
 class WriteDeviceStateCommand(SnoozCommandProcessor):
     async def _async_execute(self, api: SnoozDeviceApi) -> None:
+        if self.command.toggle:
+            self._resolve_toggle(await api.async_read_state())
+
         if self.command.volume is not None:
             await api.async_set_volume(self.command.volume)
         if self.command.on is not None:
@@ -515,17 +574,18 @@ class TransitionedCommand(SnoozCommandProcessor):
         data: SnoozCommandData,
         start_time: datetime,
         result: Future[SnoozCommandResult],
+        pending_power: bool | None = None,
     ) -> None:
         if data.duration is None:
             raise ValueError("Duration must be set for transitioned commands")
 
-        super().__init__(loop, _, data, start_time, result)
+        super().__init__(loop, _, data, start_time, result, pending_power)
         self._transition = Transition()
         self._starting_state: SnoozDeviceState | None = None
         self._remaining_duration = data.duration
         self._features: list[DeviceFeatureControls] = []
 
-        if data.on is not None or data.volume is not None:
+        if data.on is not None or data.volume is not None or data.toggle:
             self._features.append(SoundControls())
         if data.fan_on is not None or data.fan_speed is not None:
             self._features.append(FanControls())
@@ -541,6 +601,8 @@ class TransitionedCommand(SnoozCommandProcessor):
                 self._remaining_duration -= time_since_disconnect
 
         current_state = await api.async_read_state()
+
+        self._resolve_toggle(current_state)
 
         if self._starting_state is None:
             self._starting_state = current_state
@@ -579,6 +641,10 @@ class TransitionedCommand(SnoozCommandProcessor):
             command_percent = feature.get_command_percent(self.command)
             command_power = feature.get_command_power(self.command)
 
+            # nothing to transition when turning off something that's already off
+            if command_power is False and not current_power:
+                continue
+
             # To prevent a delay in the transition, set it to the minimum instead of 0
             start_percent = (
                 (current_percent if current_power else feature.min_percent)
@@ -607,6 +673,9 @@ class TransitionedCommand(SnoozCommandProcessor):
             transitions.append(
                 ControlsTransition(feature, command_power, start_percent, end_percent)
             )
+
+        if not transitions:
+            return
 
         await self._async_transition_controls(
             api,

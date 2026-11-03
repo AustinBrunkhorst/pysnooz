@@ -48,6 +48,7 @@ from pysnooz.device import (
   set_light_brightness,
   set_temp_target,
   set_volume,
+  toggle,
   turn_fan_off,
   turn_fan_on,
   turn_light_off,
@@ -67,6 +68,10 @@ await device.async_execute_command(turn_on(volume=100))
 
 # you can transition volume by specifying a duration
 await device.async_execute_command(turn_off(duration=timedelta(seconds=10)))
+
+# toggle on or off. A transition that's still running is reversed from where
+# it is, instead of toggling the momentary device state
+await device.async_execute_command(toggle(volume=75, duration=timedelta(seconds=30)))
 
 other_commands = [
   set_volume(50, duration=timedelta(seconds=10)),
