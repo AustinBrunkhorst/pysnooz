@@ -14,6 +14,7 @@ from bleak.backends.device import BLEDevice
 from pytest_mock import MockerFixture
 
 from pysnooz.api import (
+    MIN_DEVICE_VOLUME,
     CharacteristicReference,
     MissingCharacteristicError,
     SnoozDeviceApi,
@@ -27,6 +28,7 @@ from pysnooz.commands import (
     set_light_brightness,
     set_temp_target,
     set_volume,
+    toggle,
     turn_fan_off,
     turn_fan_on,
     turn_light_off,
@@ -131,9 +133,11 @@ def snooz(
     password = "AABBCCDDEEFF"
     adv_data = SnoozAdvertisementData(
         model,
-        SnoozFirmwareVersion.V2
-        if model == SnoozDeviceModel.ORIGINAL
-        else SnoozFirmwareVersion.V6,
+        (
+            SnoozFirmwareVersion.V2
+            if model == SnoozDeviceModel.ORIGINAL
+            else SnoozFirmwareVersion.V6
+        ),
         password,
     )
 
@@ -1180,3 +1184,107 @@ async def test_new_commands_cancel_existing(snooz: SnoozTestFixture) -> None:
 
     await asyncio.sleep(0.1)
     assert device.state.volume == 99
+
+
+@pytest.mark.asyncio
+async def test_new_command_during_transition(snooz: SnoozTestFixture) -> None:
+    device = snooz.create_device()
+
+    transition = asyncio.create_task(
+        device.async_execute_command(turn_on(volume=80, duration=timedelta(seconds=2)))
+    )
+    await asyncio.sleep(0.5)
+    assert device.state.on is True
+
+    # the new command cancels the transition and still gets executed
+    await snooz.assert_command_success(device, turn_off())
+    assert (await transition).status == SnoozCommandResultStatus.CANCELLED
+    assert device.is_connected
+    assert device.state.on is False
+
+
+@pytest.mark.asyncio
+async def test_toggle(snooz: SnoozTestFixture, mock_sleep: None) -> None:
+    device = snooz.create_device()
+    duration = timedelta(seconds=5)
+
+    # the device starts off and its state isn't known yet: read it, turn on
+    await snooz.assert_command_success(device, toggle(volume=75, duration=duration))
+    assert device.state.on is True
+    assert device.state.volume == 75
+
+    await snooz.assert_command_success(device, toggle(volume=75, duration=duration))
+    assert device.state.on is False
+
+    # without a duration the toggle is immediate
+    await snooz.assert_command_success(device, toggle(volume=50))
+    assert device.state.on is True
+    assert device.state.volume == 50
+
+    await snooz.assert_command_success(device, toggle())
+    assert device.state.on is False
+
+
+@pytest.mark.asyncio
+async def test_toggle_reverses_transition_on(snooz: SnoozTestFixture) -> None:
+    device = snooz.create_device()
+
+    transition = asyncio.create_task(
+        device.async_execute_command(turn_on(volume=80, duration=timedelta(seconds=2)))
+    )
+    await asyncio.sleep(0.6)
+    assert device.state.on is True
+    mid_volume = device.state.volume
+    assert mid_volume is not None
+    assert MIN_DEVICE_VOLUME <= mid_volume < 80
+
+    await snooz.assert_command_success(
+        device, toggle(volume=80, duration=timedelta(milliseconds=300))
+    )
+    assert (await transition).status == SnoozCommandResultStatus.CANCELLED
+    assert device.state.on is False
+
+
+@pytest.mark.asyncio
+async def test_toggle_reverses_transition_off(
+    mocker: MockerFixture, snooz: SnoozTestFixture
+) -> None:
+    device = snooz.create_device()
+    await snooz.assert_command_success(device, turn_on(volume=60))
+
+    set_power = mocker.spy(SnoozDeviceApi, "async_set_power")
+
+    transition = asyncio.create_task(
+        device.async_execute_command(turn_off(duration=timedelta(seconds=2)))
+    )
+    await asyncio.sleep(0.6)
+    assert device.state.on is True
+    mid_volume = device.state.volume
+    assert mid_volume is not None
+    assert MIN_DEVICE_VOLUME < mid_volume < 60
+
+    await snooz.assert_command_success(
+        device, toggle(volume=75, duration=timedelta(milliseconds=300))
+    )
+    assert (await transition).status == SnoozCommandResultStatus.CANCELLED
+    assert device.state.on is True
+    assert device.state.volume == 75
+    # the device never turned off on the way
+    assert all(c.args[-1] is not False for c in set_power.mock_calls)
+
+
+@pytest.mark.asyncio
+async def test_toggle_without_duration_reverses_transition(
+    snooz: SnoozTestFixture,
+) -> None:
+    device = snooz.create_device()
+
+    transition = asyncio.create_task(
+        device.async_execute_command(turn_on(volume=80, duration=timedelta(seconds=2)))
+    )
+    await asyncio.sleep(0.5)
+    assert device.state.on is True
+
+    await snooz.assert_command_success(device, toggle())
+    assert (await transition).status == SnoozCommandResultStatus.CANCELLED
+    assert device.state.on is False

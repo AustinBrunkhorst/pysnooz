@@ -254,6 +254,16 @@ class SnoozDevice:
         return result.response
 
     async def async_execute_command(self, data: SnoozCommandData) -> SnoozCommandResult:
+        # remember where the command being replaced was taking the device, so a
+        # toggle reverses an in-progress transition instead of reading the
+        # momentary device state
+        pending_power: bool | None = None
+        if (
+            self._current_command is not None
+            and self._current_command.state != CommandProcessorState.COMPLETE
+        ):
+            pending_power = self._current_command.resolved_power
+
         self._cancel_current_command()
 
         start_time = datetime.now()
@@ -262,27 +272,25 @@ class SnoozDevice:
             start_time,
             data,
             format_log_message=self._,
+            pending_power=pending_power,
         )
         self._current_command = command
 
         try:
             await self._async_execute_current_command()
         except CancelledError:
-            self._machine.command_execution_cancelled()
-
-            # when async_disconnect() is called, return a cancelled command
-            # instead of raising since the cancellation is expected by the user
-            if (
-                not self.is_connected
-                and self._last_disconnect_reason == DisconnectionReason.USER
-            ):
-                pass
-            else:
+            # when this command is still the current one, the cancellation came
+            # from the caller: clean up and propagate it. Otherwise it was
+            # replaced by a newer command (which must keep running) or cancelled
+            # by async_disconnect(), and the result below reports that
+            if self._current_command is command:
+                self._machine.command_execution_cancelled()
                 raise
 
         result = await command.result
 
-        self._current_command = None
+        if self._current_command is command:
+            self._current_command = None
 
         return result
 

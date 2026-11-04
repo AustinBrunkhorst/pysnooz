@@ -12,6 +12,7 @@ from pysnooz.api import MIN_DEVICE_VOLUME, MIN_FAN_SPEED, SnoozDeviceApi
 from pysnooz.commands import (
     CommandProcessorState,
     SnoozCommandData,
+    SnoozCommandProcessor,
     SnoozCommandResultStatus,
     create_command_processor,
     disable_night_mode,
@@ -21,6 +22,7 @@ from pysnooz.commands import (
     set_light_brightness,
     set_temp_target,
     set_volume,
+    toggle,
     turn_fan_off,
     turn_fan_on,
     turn_light_off,
@@ -706,3 +708,147 @@ async def test_unhandled_exception_during_execution(
     result = await command.result
     assert command.state == CommandProcessorState.COMPLETE
     assert result.status == SnoozCommandResultStatus.UNEXPECTED_ERROR
+
+
+def test_toggle_repr() -> None:
+    assert repr(toggle()) == "Toggle"
+    assert (
+        repr(toggle(volume=75, duration=timedelta(seconds=10)))
+        == "Toggle, SetVolume(75%), transition 0:00:10"
+    )
+
+
+@pytest.mark.asyncio
+async def test_toggle(
+    mocker: MockerFixture, assert_command_success: AssertCommandTest
+) -> None:
+    mock_api = mocker.MagicMock(spec=SnoozDeviceApi)
+
+    # off -> on, with the requested volume
+    mock_api.async_read_state.side_effect = [SnoozDeviceState(on=False, volume=20)]
+    await assert_command_success(mock_api, toggle(volume=75))
+    mock_api.assert_has_calls([call.async_set_volume(75), call.async_set_power(True)])
+
+    # on -> off, the volume is left alone
+    mock_api.reset_mock()
+    mock_api.async_read_state.side_effect = [SnoozDeviceState(on=True, volume=20)]
+    await assert_command_success(mock_api, toggle(volume=75))
+    mock_api.async_set_power.assert_called_once_with(False)
+    mock_api.async_set_volume.assert_not_called()
+
+    # an unknown state is treated as off
+    mock_api.reset_mock()
+    mock_api.async_read_state.side_effect = [SnoozDeviceState()]
+    await assert_command_success(mock_api, toggle())
+    mock_api.async_set_power.assert_called_once_with(True)
+
+
+@pytest.mark.asyncio
+async def test_toggle_uses_pending_power(
+    event_loop: AbstractEventLoop, mocker: MockerFixture
+) -> None:
+    mock_api = mocker.MagicMock(spec=SnoozDeviceApi)
+
+    async def execute(pending_power: bool | None) -> SnoozCommandProcessor:
+        command = create_command_processor(
+            event_loop, datetime.now(), toggle(volume=75), pending_power=pending_power
+        )
+        await command.async_execute(mock_api)
+        result = await command.result
+        assert result.status == SnoozCommandResultStatus.SUCCESSFUL
+        return command
+
+    # the device is still on while turning off: toggle turns it back on
+    mock_api.async_read_state.side_effect = [SnoozDeviceState(on=True, volume=40)]
+    command = await execute(pending_power=False)
+    assert command.resolved_power is True
+    mock_api.assert_has_calls([call.async_set_volume(75), call.async_set_power(True)])
+
+    # the device is still off while turning on: toggle turns it off
+    mock_api.reset_mock()
+    mock_api.async_read_state.side_effect = [SnoozDeviceState(on=False, volume=10)]
+    command = await execute(pending_power=True)
+    assert command.resolved_power is False
+    mock_api.async_set_power.assert_called_once_with(False)
+    mock_api.async_set_volume.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_toggle_transition(
+    event_loop: AbstractEventLoop,
+    mocker: MockerFixture,
+    assert_command_success: AssertCommandTest,
+    mock_sleep: None,
+) -> None:
+    mock_api = mocker.MagicMock(spec=SnoozDeviceApi)
+    duration = timedelta(seconds=10)
+
+    async def execute(pending_power: bool | None) -> SnoozCommandProcessor:
+        command = create_command_processor(
+            event_loop,
+            datetime.now(),
+            toggle(volume=75, duration=duration),
+            pending_power=pending_power,
+        )
+        await command.async_execute(mock_api)
+        result = await command.result
+        assert result.status == SnoozCommandResultStatus.SUCCESSFUL
+        return command
+
+    def volumes_written() -> list[int]:
+        return [c.args[0] for c in mock_api.async_set_volume.mock_calls]
+
+    # off -> on ramps from the minimum volume to the target
+    mock_api.async_read_state.side_effect = [SnoozDeviceState(on=False, volume=50)]
+    await assert_command_success(mock_api, toggle(volume=75, duration=duration))
+    mock_api.assert_has_calls(
+        [call.async_set_volume(MIN_DEVICE_VOLUME), call.async_set_power(True)]
+    )
+    assert mock_api.mock_calls[-1] == call.async_set_volume(75)
+
+    # on -> off ramps down, powers off and restores the starting volume
+    mock_api.reset_mock()
+    mock_api.async_read_state.side_effect = [SnoozDeviceState(on=True, volume=30)]
+    await assert_command_success(mock_api, toggle(volume=75, duration=duration))
+    mock_api.assert_has_calls(
+        [
+            call.async_set_volume(MIN_DEVICE_VOLUME),
+            call.async_set_power(False),
+            call.async_set_volume(30),
+        ]
+    )
+    mock_api.async_set_power.assert_called_once_with(False)
+
+    # reversing a transition on: the device is on part way up the ramp
+    mock_api.reset_mock()
+    mock_api.async_read_state.side_effect = [SnoozDeviceState(on=True, volume=30)]
+    command = await execute(pending_power=True)
+    assert command.resolved_power is False
+    mock_api.async_set_power.assert_called_once_with(False)
+    # ramps down from where the interrupted transition left it, then powers
+    # off and restores the volume to where this ramp started
+    ramp = volumes_written()[:-1]
+    assert ramp == sorted(ramp, reverse=True)
+    assert max(ramp) < 30
+    assert ramp[-1] == MIN_DEVICE_VOLUME
+    assert mock_api.mock_calls[-1] == call.async_set_volume(30)
+
+    # reversing a transition off: the device is still on part way down the ramp
+    mock_api.reset_mock()
+    mock_api.async_read_state.side_effect = [SnoozDeviceState(on=True, volume=40)]
+    command = await execute(pending_power=False)
+    assert command.resolved_power is True
+    # already on, so the power is never written
+    mock_api.async_set_power.assert_not_called()
+    ramp = volumes_written()
+    assert ramp == sorted(ramp)
+    assert min(ramp) > 40
+    assert ramp[-1] == 75
+
+    # nothing to do when the device is already off
+    mock_api.reset_mock()
+    mock_api.async_read_state.side_effect = [SnoozDeviceState(on=False, volume=10)]
+    command = await execute(pending_power=True)
+    assert command.resolved_power is False
+    mock_api.async_set_power.assert_not_called()
+    mock_api.async_set_volume.assert_not_called()
