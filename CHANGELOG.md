@@ -1,6 +1,25 @@
 # CHANGELOG
 
 
+## v0.11.0 (2026-11-04)
+
+### Features
+
+- Toggle command that reverses in-progress transitions
+  ([#24](https://github.com/AustinBrunkhorst/pysnooz/pull/24),
+  [`4b267c0`](https://github.com/AustinBrunkhorst/pysnooz/commit/4b267c001837abe800a360a4c71e6fdb00152bd7))
+
+* feat: toggle command that reverses in-progress transitions
+
+toggle() turns the noise on or off based on the state the device is in, or the state the command it
+  replaces was transitioning it to, so a running transition is reversed from where it is instead of
+  restarting from the device's momentary state.
+
+Also fixes a command issued while another is executing being swallowed: the cancelled command's
+  handler was cancelling the new command through _cancel_current_command(). A replaced command now
+  just returns its CANCELLED result and the new one keeps running.
+
+
 ## v0.10.1 (2026-11-02)
 
 ### Bug Fixes
