@@ -20,9 +20,17 @@ READ_COMMAND_CHARACTERISTIC = "f0499b1b-33ab-4df8-a6f2-2484a2ad1451"
 
 
 SNOOZ_ADVERTISEMENT_LENGTH = 9
+ADVERTISEMENT_TOKEN_LENGTH = SNOOZ_ADVERTISEMENT_LENGTH - 1
+# the first firmware generation doesn't use the pairing bit of the flags. Its
+# advertisement carries one of these tokens until the device enters pairing mode.
+LEGACY_TOKEN_EMPTY = bytes([0] * ADVERTISEMENT_TOKEN_LENGTH)
+LEGACY_TOKEN_SEQUENCE = bytes(range(1, ADVERTISEMENT_TOKEN_LENGTH + 1))
 
 FIRMWARE_PAIRING_FLAGS = 0x01
+# the version is encoded in bits 2 and up as `version - 1`. The first firmware
+# generation has no version bits set, so only the pairing bit can be present.
 FIRMWARE_VERSION_BY_FLAGS = {
+    0x00: SnoozFirmwareVersion.V1,
     0x04: SnoozFirmwareVersion.V2,
     0x08: SnoozFirmwareVersion.V3,
     0x0C: SnoozFirmwareVersion.V4,
@@ -43,6 +51,7 @@ FIRMWARE_VERSION_BY_FLAGS = {
 # Pro model when both advertise the same name.
 SUPPORTED_FIRMWARE_VERSIONS = list(SnoozFirmwareVersion)
 ORIGINAL_FIRMWARE_VERSIONS = [
+    SnoozFirmwareVersion.V1,
     SnoozFirmwareVersion.V2,
     SnoozFirmwareVersion.V3,
     SnoozFirmwareVersion.V4,

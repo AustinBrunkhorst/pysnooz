@@ -62,6 +62,23 @@ DEVICE_UNKNOWN_FIRMWARE_VERSION = BluetoothServiceInfo(
     source="local",
 )
 
+
+# the first firmware generation, from the original crowdfunding release, has no
+# version bits in its flags
+def _first_generation(
+    flags: int, token: bytes = EMPTY_PASSWORD
+) -> BluetoothServiceInfo:
+    return BluetoothServiceInfo(
+        name="Snooz-ABCD",
+        address="00:00:00:00:AB:CD",
+        rssi=-63,
+        manufacturer_data={0xFFFF: bytes([flags]) + token},
+        service_uuids=[],
+        service_data={},
+        source="local",
+    )
+
+
 DEVICE_UNKNOWN_NAME = BluetoothServiceInfo(
     name="Wowee-ABCD",
     address="00:00:00:00:AB:CD",
@@ -171,6 +188,48 @@ def test_supported_name_variants():
     assert newer is not None
     assert newer.model == SnoozDeviceModel.PRO
     assert newer.firmware_version == SnoozFirmwareVersion.V7
+
+
+@pytest.mark.parametrize("flags", [0x00, 0x01])
+def test_first_generation_firmware(flags: int) -> None:
+    # not in pairing mode: the token is empty or the sequence 1-8, whatever
+    # the pairing bit says
+    for token in (EMPTY_PASSWORD, bytes(range(1, 9))):
+        parsed = parse_snooz_advertisement(_first_generation(flags, token))
+
+        assert parsed is not None
+        assert parsed.model == SnoozDeviceModel.ORIGINAL
+        assert parsed.firmware_version == SnoozFirmwareVersion.V1
+        assert parsed.password is None
+        assert not parsed.is_pairing
+
+    # pairing mode reveals the token
+    password = bytes([0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0xFA, 0xFB])
+    pairing = parse_snooz_advertisement(_first_generation(flags, password))
+
+    assert pairing is not None
+    assert pairing.firmware_version == SnoozFirmwareVersion.V1
+    assert pairing.password == password.hex()
+    assert pairing.is_pairing
+
+
+def test_first_generation_name_variants() -> None:
+    # the bare characteristic name must not turn an original into a Pro
+    for name in ("Snooz", "Snooz-ABCD"):
+        info = _first_generation(0x01)
+        info = BluetoothServiceInfo(
+            name=name,
+            address=info.address,
+            rssi=info.rssi,
+            manufacturer_data=info.manufacturer_data,
+            service_uuids=[],
+            service_data={},
+            source="local",
+        )
+        parsed = parse_snooz_advertisement(info)
+
+        assert parsed is not None
+        assert parsed.model == SnoozDeviceModel.ORIGINAL
 
 
 @pytest.fixture(params=SUPPORTED_FIRMWARE_VERSIONS)
