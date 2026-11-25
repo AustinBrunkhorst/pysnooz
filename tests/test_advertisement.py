@@ -62,9 +62,12 @@ DEVICE_UNKNOWN_FIRMWARE_VERSION = BluetoothServiceInfo(
     source="local",
 )
 
+
 # the first firmware generation, from the original crowdfunding release, has no
 # version bits in its flags
-def _first_generation(flags: int, token: bytes = EMPTY_PASSWORD) -> BluetoothServiceInfo:
+def _first_generation(
+    flags: int, token: bytes = EMPTY_PASSWORD
+) -> BluetoothServiceInfo:
     return BluetoothServiceInfo(
         name="Snooz-ABCD",
         address="00:00:00:00:AB:CD",
