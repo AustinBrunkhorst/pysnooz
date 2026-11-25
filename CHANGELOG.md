@@ -1,6 +1,15 @@
 # CHANGELOG
 
 
+## v0.11.1 (2026-11-25)
+
+### Bug Fixes
+
+- Parse advertisements from first generation firmware
+  ([#25](https://github.com/AustinBrunkhorst/pysnooz/pull/25),
+  [`0b37ad4`](https://github.com/AustinBrunkhorst/pysnooz/commit/0b37ad45340e10f8d90a791a95519ea452b41c0d))
+
+
 ## v0.11.0 (2026-11-04)
 
 ### Features
