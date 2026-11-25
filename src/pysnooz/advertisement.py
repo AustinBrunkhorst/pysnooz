@@ -8,6 +8,8 @@ from home_assistant_bluetooth import BluetoothServiceInfo
 from pysnooz.const import (
     FIRMWARE_PAIRING_FLAGS,
     FIRMWARE_VERSION_BY_FLAGS,
+    LEGACY_TOKEN_EMPTY,
+    LEGACY_TOKEN_SEQUENCE,
     MODEL_NAME_BREEZ,
     MODEL_NAME_SNOOZ_PRO,
     ORIGINAL_FIRMWARE_VERSIONS,
@@ -38,6 +40,16 @@ def parse_firmware_flags(flags: int) -> ParsedAdvertisementFlags | None:
     )
 
 
+def is_pairing_advertisement(flags: ParsedAdvertisementFlags, token: bytes) -> bool:
+    if flags.firmware_version == SnoozFirmwareVersion.V1:
+        # the first firmware generation doesn't use the pairing bit like later
+        # versions do (units are seen with it set while idle), so the token is
+        # what tells whether the password has been revealed
+        return token not in (LEGACY_TOKEN_EMPTY, LEGACY_TOKEN_SEQUENCE)
+
+    return flags.is_pairing
+
+
 def parse_snooz_advertisement(
     data: BluetoothServiceInfo,
 ) -> SnoozAdvertisementData | None:
@@ -60,10 +72,12 @@ def parse_snooz_advertisement(
         )
         return None
 
+    token = advertisement[1:]
+
     return SnoozAdvertisementData(
         model,
         flags.firmware_version,
-        password=advertisement[1:].hex() if flags.is_pairing else None,
+        password=token.hex() if is_pairing_advertisement(flags, token) else None,
     )
 
 
